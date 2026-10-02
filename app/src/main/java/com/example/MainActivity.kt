@@ -78,13 +78,14 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by repository.sessionManager.themeModeFlow.collectAsState(initial = "SYSTEM")
+            val colorTheme by repository.sessionManager.colorThemeFlow.collectAsState(initial = "TEAL")
             val darkTheme = when (themeMode) {
                 "DARK" -> true
                 "LIGHT" -> false
                 else -> isSystemInDarkTheme()
             }
 
-            MyApplicationTheme(darkTheme = darkTheme) {
+            MyApplicationTheme(darkTheme = darkTheme, colorTheme = colorTheme) {
                 MoodgramApp(repository = repository)
             }
         }

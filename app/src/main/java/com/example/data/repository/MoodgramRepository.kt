@@ -107,19 +107,15 @@ class MoodgramRepository(
     }
 
     /**
-     * Obtiene la base de datos de usuarios más reciente.
+     * Obtiene la base de datos de usuarios más reciente en tiempo real desde el servidor.
      */
-    suspend fun getUsersDatabase(forceRemote: Boolean = false): UsersDatabase = withContext(Dispatchers.IO) {
+    suspend fun getUsersDatabase(forceRemote: Boolean = true): UsersDatabase = withContext(Dispatchers.IO) {
         usersMutex.withLock {
             getUsersInternal(forceRemote)
         }
     }
 
     private suspend fun getUsersInternal(forceRemote: Boolean): UsersDatabase {
-        if (!forceRemote) {
-            localCache.getUsers()?.let { return it }
-        }
-
         try {
             var files = moodleApi.listEvidenceFiles()
             if (files.none { it.filename?.startsWith(AppConfig.USERS_FILE_PREFIX) == true }) {
@@ -146,7 +142,7 @@ class MoodgramRepository(
                 }
             }
         } catch (e: Exception) {
-            Log.w(tag, "No se pudo descargar usuarios del servidor, usando caché", e)
+            Log.w(tag, "Fallo al consultar usuarios en el servidor, usando caché local", e)
         }
 
         val cached = localCache.getUsers()
@@ -188,19 +184,15 @@ class MoodgramRepository(
     }
 
     /**
-     * Obtiene la base de datos de publicaciones más reciente.
+     * Obtiene la base de datos de publicaciones más reciente en tiempo real.
      */
-    suspend fun getPostsDatabase(forceRemote: Boolean = false): PostsDatabase = withContext(Dispatchers.IO) {
+    suspend fun getPostsDatabase(forceRemote: Boolean = true): PostsDatabase = withContext(Dispatchers.IO) {
         postsMutex.withLock {
             getPostsInternal(forceRemote)
         }
     }
 
     private suspend fun getPostsInternal(forceRemote: Boolean): PostsDatabase {
-        if (!forceRemote) {
-            localCache.getPosts()?.let { return it }
-        }
-
         try {
             var files = moodleApi.listEvidenceFiles()
             if (files.none { it.filename?.startsWith(AppConfig.POSTS_FILE_PREFIX) == true }) {
@@ -238,7 +230,7 @@ class MoodgramRepository(
                 }
             }
         } catch (e: Exception) {
-            Log.w(tag, "No se pudo descargar publicaciones del servidor, usando caché", e)
+            Log.w(tag, "Fallo al consultar publicaciones en el servidor, usando caché", e)
         }
 
         val cached = localCache.getPosts()
@@ -269,19 +261,15 @@ class MoodgramRepository(
     }
 
     /**
-     * Obtiene la base de datos de chats más reciente.
+     * Obtiene la base de datos de chats más reciente en tiempo real.
      */
-    suspend fun getChatsDatabase(forceRemote: Boolean = false): ChatsDatabase = withContext(Dispatchers.IO) {
+    suspend fun getChatsDatabase(forceRemote: Boolean = true): ChatsDatabase = withContext(Dispatchers.IO) {
         chatsMutex.withLock {
             getChatsInternal(forceRemote)
         }
     }
 
     private suspend fun getChatsInternal(forceRemote: Boolean): ChatsDatabase {
-        if (!forceRemote) {
-            localCache.getChats()?.let { return it }
-        }
-
         try {
             var files = moodleApi.listEvidenceFiles()
             if (files.none { it.filename?.startsWith(AppConfig.CHATS_FILE_PREFIX) == true }) {
@@ -308,7 +296,7 @@ class MoodgramRepository(
                 }
             }
         } catch (e: Exception) {
-            Log.w(tag, "No se pudo descargar chats del servidor, usando caché", e)
+            Log.w(tag, "Fallo al consultar chats en el servidor, usando caché", e)
         }
 
         val cached = localCache.getChats()
@@ -499,31 +487,41 @@ class MoodgramRepository(
     }
 
     /**
-     * Crea y publica una nueva publicación con imagen o video en la nube.
+     * Crea y publica una nueva publicación (con imagen, video o solo texto con gradiente) en la nube.
      */
     suspend fun createPost(
         author: UserSession,
         text: String,
-        mediaBytes: ByteArray,
-        filename: String,
-        mimeType: String,
-        isVideo: Boolean,
+        mediaBytes: ByteArray? = null,
+        filename: String = "",
+        mimeType: String = "",
+        isVideo: Boolean = false,
+        backgroundColor: String = "",
         onProgress: (Float) -> Unit = {}
     ): Post = withContext(Dispatchers.IO) {
-        if (mediaBytes.size > AppConfig.MAX_FILE_BYTES) {
-            throw IOException("El archivo excede el límite máximo de ${AppConfig.MAX_FILE_MB} MB.")
+        var resolvedUrl = ""
+        var actualMediaType = if (isVideo) "video" else "image"
+        var finalFileSize = 0L
+        var uniqueFilename = ""
+
+        if (mediaBytes != null && mediaBytes.isNotEmpty()) {
+            if (mediaBytes.size > AppConfig.MAX_FILE_BYTES) {
+                throw IOException("El archivo excede el límite máximo de ${AppConfig.MAX_FILE_MB} MB.")
+            }
+
+            uniqueFilename = "post_${System.currentTimeMillis()}_${filename.replace(" ", "_")}"
+            val uploadResult = moodleApi.uploadToUserEvidence(
+                filename = uniqueFilename,
+                mimeType = mimeType.ifEmpty { if (isVideo) "video/mp4" else "image/jpeg" },
+                bytes = mediaBytes,
+                evidenceTitle = "Moodgram Post $uniqueFilename",
+                onProgress = onProgress
+            )
+            resolvedUrl = uploadResult.directUrl
+            finalFileSize = mediaBytes.size.toLong()
+        } else {
+            actualMediaType = "text"
         }
-
-        val uniqueFilename = "post_${System.currentTimeMillis()}_${filename.replace(" ", "_")}"
-        val uploadResult = moodleApi.uploadToUserEvidence(
-            filename = uniqueFilename,
-            mimeType = mimeType,
-            bytes = mediaBytes,
-            evidenceTitle = "Moodgram Post $uniqueFilename",
-            onProgress = onProgress
-        )
-
-        val resolvedUrl = uploadResult.directUrl
 
         val newPost = Post(
             id = UUID.randomUUID().toString(),
@@ -532,9 +530,10 @@ class MoodgramRepository(
             authorAvatarRef = author.avatarRef,
             text = text.trim(),
             mediaUrl = resolvedUrl,
-            mediaType = if (isVideo) "video" else "image",
+            mediaType = actualMediaType,
+            backgroundColor = backgroundColor,
             fileRef = uniqueFilename,
-            fileSize = mediaBytes.size.toLong(),
+            fileSize = finalFileSize,
             createdAt = System.currentTimeMillis(),
             likes = emptyList(),
             reactions = emptyMap(),
@@ -612,12 +611,15 @@ class MoodgramRepository(
     }
 
     /**
-     * Agrega un comentario a una publicación.
+     * Agrega un comentario o respuesta a una publicación.
      */
     suspend fun addComment(
         postId: String,
         user: UserSession,
-        commentText: String
+        commentText: String,
+        replyToCommentId: String? = null,
+        replyToUsername: String? = null,
+        replyToDisplayName: String? = null
     ): Comment = withContext(Dispatchers.IO) {
         if (commentText.isBlank()) throw IOException("El comentario no puede estar vacío.")
 
@@ -627,7 +629,10 @@ class MoodgramRepository(
             authorDisplayName = user.displayName,
             authorAvatarRef = user.avatarRef,
             text = commentText.trim(),
-            createdAt = System.currentTimeMillis()
+            createdAt = System.currentTimeMillis(),
+            replyToCommentId = replyToCommentId,
+            replyToUsername = replyToUsername,
+            replyToDisplayName = replyToDisplayName
         )
 
         postsMutex.withLock {
@@ -738,6 +743,7 @@ class MoodgramRepository(
 
     /**
      * Envía un mensaje en un chat (Grupo Oficial o chat directo).
+     * Soporta texto, imágenes, videos y notas de audio con respuesta a otros mensajes.
      */
     suspend fun sendChatMessage(
         chatId: String,
@@ -745,24 +751,46 @@ class MoodgramRepository(
         text: String,
         mediaBytes: ByteArray? = null,
         filename: String = "",
-        mimeType: String = ""
+        mimeType: String = "",
+        mediaType: String = "",
+        mediaDurationMs: Long = 0L,
+        replyToMessageId: String? = null,
+        replyToSenderName: String? = null,
+        replyToText: String? = null
     ): ChatMessage = withContext(Dispatchers.IO) {
         if (text.isBlank() && (mediaBytes == null || mediaBytes.isEmpty())) {
             throw IOException("El mensaje no puede estar vacío.")
         }
 
         var mediaUrl = ""
-        var msgMediaType = ""
+        var actualMediaType = mediaType
         if (mediaBytes != null && mediaBytes.isNotEmpty()) {
-            val uniqueName = "chat_${System.currentTimeMillis()}_${filename.ifEmpty { "img.jpg" }}"
+            val ext = when {
+                mimeType.contains("video") || filename.endsWith(".mp4") -> "mp4"
+                mimeType.contains("audio") || filename.endsWith(".m4a") || filename.endsWith(".aac") -> "m4a"
+                else -> "jpg"
+            }
+            if (actualMediaType.isEmpty()) {
+                actualMediaType = when (ext) {
+                    "mp4" -> "video"
+                    "m4a" -> "audio"
+                    else -> "image"
+                }
+            }
+            val uniqueName = "chat_${System.currentTimeMillis()}_${filename.ifEmpty { "media.$ext" }}"
             val uploadRes = moodleApi.uploadToUserEvidence(
                 filename = uniqueName,
-                mimeType = mimeType.ifEmpty { "image/jpeg" },
+                mimeType = mimeType.ifEmpty {
+                    when (ext) {
+                        "mp4" -> "video/mp4"
+                        "m4a" -> "audio/mp4"
+                        else -> "image/jpeg"
+                    }
+                },
                 bytes = mediaBytes,
-                evidenceTitle = "Moodgram Chat Media"
+                evidenceTitle = "Moodgram Chat Media $uniqueName"
             )
             mediaUrl = uploadRes.directUrl
-            msgMediaType = "image"
         }
 
         val message = ChatMessage(
@@ -773,18 +801,35 @@ class MoodgramRepository(
             senderAvatarRef = sender.avatarRef,
             text = text.trim(),
             mediaUrl = mediaUrl,
-            mediaType = msgMediaType,
+            mediaType = actualMediaType,
+            mediaDurationMs = mediaDurationMs,
             createdAt = System.currentTimeMillis(),
-            isEdited = false
+            isEdited = false,
+            replyToMessageId = replyToMessageId,
+            replyToSenderName = replyToSenderName,
+            replyToText = replyToText,
+            status = "SENT",
+            readBy = listOf(sender.username)
         )
 
         chatsMutex.withLock {
             val db = getChatsInternal(forceRemote = false)
+            val summaryText = when {
+                mediaUrl.isNotEmpty() && text.isBlank() -> {
+                    when (actualMediaType) {
+                        "video" -> "🎥 Video"
+                        "audio" -> "🎤 Nota de voz"
+                        else -> "📷 Imagen"
+                    }
+                }
+                else -> text.trim()
+            }
+
             val newDb = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
                 val group = db.officialGroup
                 val updatedGroup = group.copy(
                     messages = group.messages + message,
-                    lastMessage = if (mediaUrl.isNotEmpty() && text.isBlank()) "📷 Imagen" else text.trim(),
+                    lastMessage = summaryText,
                     lastMessageSender = sender.displayName,
                     lastMessageTime = message.createdAt
                 )
@@ -794,7 +839,7 @@ class MoodgramRepository(
                     if (direct.id == chatId) {
                         direct.copy(
                             messages = direct.messages + message,
-                            lastMessage = if (mediaUrl.isNotEmpty() && text.isBlank()) "📷 Imagen" else text.trim(),
+                            lastMessage = summaryText,
                             lastMessageSender = sender.displayName,
                             lastMessageTime = message.createdAt
                         )
@@ -806,6 +851,50 @@ class MoodgramRepository(
         }
 
         return@withContext message
+    }
+
+    /**
+     * Marca todos los mensajes recibidos en un chat como leídos por el usuario actual.
+     */
+    suspend fun markMessagesAsRead(chatId: String, currentUsername: String): Unit = withContext(Dispatchers.IO) {
+        chatsMutex.withLock {
+            val db = getChatsInternal(forceRemote = false)
+            var modified = false
+
+            fun updateReadStatus(messages: List<ChatMessage>): List<ChatMessage> {
+                return messages.map { msg ->
+                    if (!msg.readBy.contains(currentUsername)) {
+                        modified = true
+                        msg.copy(readBy = msg.readBy + currentUsername, status = "READ")
+                    } else {
+                        msg
+                    }
+                }
+            }
+
+            if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
+                val group = db.officialGroup
+                val updatedMessages = updateReadStatus(group.messages)
+                if (modified) {
+                    val newDb = db.copy(
+                        officialGroup = group.copy(messages = updatedMessages),
+                        lastUpdated = System.currentTimeMillis()
+                    )
+                    saveChatsInternal(newDb)
+                }
+            } else {
+                val updatedDirects = db.directChats.map { direct ->
+                    if (direct.id == chatId) {
+                        val updatedMessages = updateReadStatus(direct.messages)
+                        direct.copy(messages = updatedMessages)
+                    } else direct
+                }
+                if (modified) {
+                    val newDb = db.copy(directChats = updatedDirects, lastUpdated = System.currentTimeMillis())
+                    saveChatsInternal(newDb)
+                }
+            }
+        }
     }
 
     /**

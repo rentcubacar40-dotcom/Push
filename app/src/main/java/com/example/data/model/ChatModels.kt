@@ -8,12 +8,22 @@ data class ChatMessage(
     val senderAvatarRef: String = "",
     val text: String = "",
     val mediaUrl: String = "",
-    val mediaType: String = "", // "image"
+    val mediaType: String = "", // "image", "video", "audio"
+    val mediaDurationMs: Long = 0L,
     val createdAt: Long = System.currentTimeMillis(),
     val isEdited: Boolean = false,
     val editedAt: Long = 0L,
+    val replyToMessageId: String? = null,
+    val replyToSenderName: String? = null,
+    val replyToText: String? = null,
+    val status: String = "SENT", // "SENDING", "SENT", "READ"
+    val readBy: List<String> = emptyList(), // Lista de usuarios que han leído el mensaje
     val reactions: Map<String, String> = emptyMap() // username -> emoji
-)
+) {
+    val isImage: Boolean get() = mediaType.equals("image", ignoreCase = true)
+    val isVideo: Boolean get() = mediaType.equals("video", ignoreCase = true)
+    val isAudio: Boolean get() = mediaType.equals("audio", ignoreCase = true)
+}
 
 data class ChatGroup(
     val id: String,

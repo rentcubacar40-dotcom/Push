@@ -14,8 +14,12 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+import com.example.data.model.User
+
 data class FeedUiState(
     val posts: List<Post> = emptyList(),
+    val allUsers: List<User> = emptyList(),
+    val showReactionsForPost: Post? = null,
     val isLoading: Boolean = false,
     val isRefreshing: Boolean = false,
     val errorMessage: String? = null,
@@ -145,9 +149,18 @@ class FeedViewModel(
             it.copy(
                 resolvedMediaUrls = currentMedia,
                 resolvedAvatarUrls = currentAvatars,
-                userOnlineStatus = onlineStatus
+                userOnlineStatus = onlineStatus,
+                allUsers = usersDb?.users ?: emptyList()
             )
         }
+    }
+
+    fun openReactionsDetail(post: Post) {
+        _uiState.update { it.copy(showReactionsForPost = post) }
+    }
+
+    fun closeReactionsDetail() {
+        _uiState.update { it.copy(showReactionsForPost = null) }
     }
 
     fun setReaction(post: Post, emoji: String) {

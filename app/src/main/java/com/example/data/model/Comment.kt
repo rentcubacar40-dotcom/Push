@@ -8,5 +8,8 @@ data class Comment(
     val text: String,
     val createdAt: Long = System.currentTimeMillis(),
     val isEdited: Boolean = false,
-    val editedAt: Long = 0L
+    val editedAt: Long = 0L,
+    val replyToCommentId: String? = null,
+    val replyToUsername: String? = null,
+    val replyToDisplayName: String? = null
 )

@@ -2,7 +2,9 @@ package com.example.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.model.Comment
 import com.example.data.model.Post
+import com.example.data.model.User
 import com.example.data.model.UserSession
 import com.example.data.repository.MoodgramRepository
 import kotlinx.coroutines.delay
@@ -19,7 +21,10 @@ data class PostDetailUiState(
     val resolvedMediaUrl: String = "",
     val resolvedAvatarUrls: Map<String, String> = emptyMap(),
     val userOnlineStatus: Map<String, Boolean> = emptyMap(),
+    val allUsers: List<User> = emptyList(),
     val newCommentText: String = "",
+    val replyingToComment: Comment? = null,
+    val showReactionsDetail: Boolean = false,
     val editingCommentId: String? = null,
     val editingCommentText: String = "",
     val isSubmittingComment: Boolean = false,
@@ -117,7 +122,8 @@ class PostDetailViewModel(
             it.copy(
                 resolvedMediaUrl = mediaUrl,
                 resolvedAvatarUrls = avatarMap,
-                userOnlineStatus = onlineMap
+                userOnlineStatus = onlineMap,
+                allUsers = usersDb?.users ?: emptyList()
             )
         }
     }
@@ -191,15 +197,31 @@ class PostDetailViewModel(
         setReaction("❤️")
     }
 
+    fun setReplyingToComment(comment: Comment?) {
+        _uiState.update { it.copy(replyingToComment = comment) }
+    }
+
+    fun setShowReactionsDetail(show: Boolean) {
+        _uiState.update { it.copy(showReactionsDetail = show) }
+    }
+
     fun addComment() {
         val user = _uiState.value.currentUser ?: return
         val commentText = _uiState.value.newCommentText.trim()
+        val replyingTo = _uiState.value.replyingToComment
         if (commentText.isBlank()) return
 
         _uiState.update { it.copy(isSubmittingComment = true) }
         viewModelScope.launch {
             try {
-                val newComment = repository.addComment(postId, user, commentText)
+                val newComment = repository.addComment(
+                    postId = postId,
+                    user = user,
+                    commentText = commentText,
+                    replyToCommentId = replyingTo?.id,
+                    replyToUsername = replyingTo?.authorUsername,
+                    replyToDisplayName = replyingTo?.authorDisplayName
+                )
                 val currentPost = _uiState.value.post
                 if (currentPost != null) {
                     val updatedComments = currentPost.comments + newComment
@@ -207,6 +229,7 @@ class PostDetailViewModel(
                         it.copy(
                             post = currentPost.copy(comments = updatedComments),
                             newCommentText = "",
+                            replyingToComment = null,
                             isSubmittingComment = false
                         )
                     }

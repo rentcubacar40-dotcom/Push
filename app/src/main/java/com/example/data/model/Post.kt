@@ -7,7 +7,8 @@ data class Post(
     val authorAvatarRef: String = "",
     val text: String = "",
     val mediaUrl: String = "", // URL completa o relativa
-    val mediaType: String = "image", // "image" o "video"
+    val mediaType: String = "image", // "image", "video", o "text"
+    val backgroundColor: String = "", // Para posts de solo texto con gradiente ("sunset", "teal", "purple", "midnight", "emerald", "coral")
     val fileRef: String = "", // Nombre de archivo o ref en la nube
     val fileSize: Long = 0L,
     val createdAt: Long = System.currentTimeMillis(),
@@ -17,6 +18,9 @@ data class Post(
 ) {
     val isVideo: Boolean
         get() = mediaType.equals("video", ignoreCase = true)
+
+    val isTextOnly: Boolean
+        get() = mediaUrl.isEmpty() || mediaType.equals("text", ignoreCase = true)
 
     val allReactions: Map<String, String>
         get() {

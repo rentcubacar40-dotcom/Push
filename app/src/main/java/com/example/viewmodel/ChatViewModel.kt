@@ -11,6 +11,7 @@ import com.example.data.model.User
 import com.example.data.model.UserSession
 import com.example.data.repository.MoodgramRepository
 import com.example.util.MediaUtils
+import com.example.util.VoiceNoteManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.File
 
 data class ChatUiState(
     val officialGroup: ChatGroup? = null,
@@ -30,13 +32,20 @@ data class ChatUiState(
     val userOnlineMap: Map<String, Boolean> = emptyMap(),
     val currentUser: UserSession? = null,
     val messageInputText: String = "",
+    val replyingToMessage: ChatMessage? = null,
+    val showReadInfoForMessage: ChatMessage? = null,
     val editingMessageId: String? = null,
     val editingMessageText: String = "",
     val isSending: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
-    val selectedImageUri: Uri? = null,
-    val selectedImageBytes: ByteArray? = null,
+    val selectedMediaUri: Uri? = null,
+    val selectedMediaType: String = "", // "image", "video", "audio"
+    val selectedMediaBytes: ByteArray? = null,
+    val selectedMediaDurationMs: Long = 0L,
+    val isRecordingVoice: Boolean = false,
+    val voiceRecordDurationMs: Long = 0L,
+    val voiceRecordAmplitude: Int = 0,
     val showNewChatDialog: Boolean = false,
     val showManageGroupDialog: Boolean = false,
     val groupEditName: String = "",
@@ -44,7 +53,9 @@ data class ChatUiState(
     val groupEditAvatarUri: Uri? = null,
     val groupEditAvatarBytes: ByteArray? = null,
     val isUpdatingGroup: Boolean = false
-)
+) {
+    val selectedImageUri: Uri? get() = if (selectedMediaType == "image") selectedMediaUri else null
+}
 
 class ChatViewModel(
     private val repository: MoodgramRepository
@@ -52,6 +63,8 @@ class ChatViewModel(
 
     private val _uiState = MutableStateFlow(ChatUiState(isLoading = true))
     val uiState: StateFlow<ChatUiState> = _uiState.asStateFlow()
+
+    private var voiceNoteManager: VoiceNoteManager? = null
 
     init {
         observeSession()
@@ -71,7 +84,7 @@ class ChatViewModel(
     private fun startRealtimePolling() {
         viewModelScope.launch {
             while (isActive) {
-                delay(3500)
+                delay(3000)
                 try {
                     val session = _uiState.value.currentUser
                     if (session != null) {
@@ -138,8 +151,11 @@ class ChatViewModel(
             if (active.isOfficialGroup) {
                 activeAvatar = if (active.avatarUrl.isNotEmpty()) repository.resolveMediaUrl(active.avatarUrl) else ""
             } else {
-                val other = active.getOtherParticipant(_uiState.value.currentUser?.username ?: "")
-                activeAvatar = avatarMap[other] ?: (if (active.avatarUrl.isNotEmpty()) repository.resolveMediaUrl(active.avatarUrl) else "")
+                val otherUsername = active.getOtherParticipant(_uiState.value.currentUser?.username ?: "")
+                val otherUser = users.firstOrNull { it.username.equals(otherUsername, ignoreCase = true) }
+                if (otherUser?.avatarRef?.isNotEmpty() == true) {
+                    activeAvatar = repository.resolveMediaUrl(otherUser.avatarRef)
+                }
             }
         }
 
@@ -154,60 +170,39 @@ class ChatViewModel(
     }
 
     fun openChat(chatId: String) {
-        viewModelScope.launch {
-            val chatsDb = repository.getChatsDatabase(forceRemote = false)
-            val chat = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
-                chatsDb.officialGroup
-            } else {
-                chatsDb.directChats.firstOrNull { it.id == chatId }
-            }
-
-            var activeAvatar = ""
-            if (chat != null) {
-                if (chat.isOfficialGroup) {
-                    activeAvatar = if (chat.avatarUrl.isNotEmpty()) repository.resolveMediaUrl(chat.avatarUrl) else ""
-                } else {
-                    val other = chat.getOtherParticipant(_uiState.value.currentUser?.username ?: "")
-                    activeAvatar = _uiState.value.resolvedAvatarMap[other] ?: (if (chat.avatarUrl.isNotEmpty()) repository.resolveMediaUrl(chat.avatarUrl) else "")
-                }
-            }
-
-            _uiState.update {
-                it.copy(
-                    activeChat = chat,
-                    activeChatResolvedAvatar = activeAvatar,
-                    messageInputText = "",
-                    editingMessageId = null,
-                    selectedImageUri = null,
-                    selectedImageBytes = null
-                )
-            }
+        val active = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
+            _uiState.value.officialGroup
+        } else {
+            _uiState.value.directChats.firstOrNull { it.id == chatId }
         }
-    }
-
-    fun closeActiveChat() {
         _uiState.update {
             it.copy(
-                activeChat = null,
+                activeChat = active,
                 messageInputText = "",
-                editingMessageId = null,
-                selectedImageUri = null,
-                selectedImageBytes = null
+                replyingToMessage = null,
+                selectedMediaUri = null,
+                selectedMediaBytes = null,
+                selectedMediaType = ""
             )
+        }
+
+        // Marcar mensajes como leídos
+        val user = _uiState.value.currentUser
+        if (user != null) {
+            viewModelScope.launch {
+                try {
+                    repository.markMessagesAsRead(chatId, user.username)
+                } catch (_: Exception) {}
+            }
         }
     }
 
-    fun startDirectChat(targetUsername: String, onOpened: (String) -> Unit) {
-        val user = _uiState.value.currentUser ?: return
-        viewModelScope.launch {
-            try {
-                val directChat = repository.getOrCreateDirectChat(user.username, targetUsername)
-                openChat(directChat.id)
-                onOpened(directChat.id)
-            } catch (e: Exception) {
-                _uiState.update { it.copy(errorMessage = "No se pudo iniciar el chat: ${e.message}") }
-            }
-        }
+    fun setReplyingToMessage(message: ChatMessage?) {
+        _uiState.update { it.copy(replyingToMessage = message) }
+    }
+
+    fun setShowReadInfoForMessage(message: ChatMessage?) {
+        _uiState.update { it.copy(showReadInfoForMessage = message) }
     }
 
     fun onMessageInputChange(text: String) {
@@ -216,7 +211,7 @@ class ChatViewModel(
 
     fun onImageSelected(context: Context, uri: Uri?) {
         if (uri == null) {
-            _uiState.update { it.copy(selectedImageUri = null, selectedImageBytes = null) }
+            _uiState.update { it.copy(selectedMediaUri = null, selectedMediaBytes = null, selectedMediaType = "") }
             return
         }
         viewModelScope.launch {
@@ -226,54 +221,199 @@ class ChatViewModel(
                 maxDimension = AppConfig.MAX_IMAGE_DIMENSION,
                 maxBytes = AppConfig.MAX_FILE_BYTES.toLong()
             )
-            _uiState.update { it.copy(selectedImageUri = uri, selectedImageBytes = bytes) }
+            _uiState.update {
+                it.copy(
+                    selectedMediaUri = uri,
+                    selectedMediaBytes = bytes,
+                    selectedMediaType = "image"
+                )
+            }
         }
     }
 
-    fun removeSelectedImage() {
-        _uiState.update { it.copy(selectedImageUri = null, selectedImageBytes = null) }
+    fun onVideoSelected(context: Context, uri: Uri?) {
+        if (uri == null) {
+            _uiState.update { it.copy(selectedMediaUri = null, selectedMediaBytes = null, selectedMediaType = "") }
+            return
+        }
+        viewModelScope.launch {
+            val size = MediaUtils.getFileSize(context, uri)
+            if (size > AppConfig.MAX_FILE_BYTES) {
+                _uiState.update { it.copy(errorMessage = "El video supera los 4 MB. Elige un video más corto.") }
+                return@launch
+            }
+            val bytes = MediaUtils.readBytes(context, uri)
+            _uiState.update {
+                it.copy(
+                    selectedMediaUri = uri,
+                    selectedMediaBytes = bytes,
+                    selectedMediaType = "video"
+                )
+            }
+        }
+    }
+
+    fun removeSelectedMedia() {
+        _uiState.update {
+            it.copy(
+                selectedMediaUri = null,
+                selectedMediaBytes = null,
+                selectedMediaType = "",
+                selectedMediaDurationMs = 0L
+            )
+        }
+    }
+
+    // Grabación de notas de voz estilo WhatsApp
+    fun startVoiceRecording(context: Context) {
+        val manager = VoiceNoteManager(context)
+        voiceNoteManager = manager
+        if (manager.startRecording()) {
+            _uiState.update { it.copy(isRecordingVoice = true, voiceRecordDurationMs = 0L) }
+            viewModelScope.launch {
+                while (_uiState.value.isRecordingVoice) {
+                    manager.updateDuration()
+                    val state = manager.recordState.value
+                    _uiState.update {
+                        it.copy(
+                            voiceRecordDurationMs = state.durationMs,
+                            voiceRecordAmplitude = state.amplitude
+                        )
+                    }
+                    delay(100)
+                }
+            }
+        } else {
+            _uiState.update { it.copy(errorMessage = "No se pudo iniciar la grabación de audio.") }
+        }
+    }
+
+    fun stopAndSendVoiceRecording() {
+        val manager = voiceNoteManager ?: return
+        val audioFile = manager.stopRecording()
+        _uiState.update { it.copy(isRecordingVoice = false) }
+
+        if (audioFile != null && audioFile.exists() && audioFile.length() > 0) {
+            val dur = _uiState.value.voiceRecordDurationMs
+            val bytes = audioFile.readBytes()
+            sendVoiceNoteInternal(bytes, dur)
+        }
+    }
+
+    fun cancelVoiceRecording() {
+        voiceNoteManager?.cancelRecording()
+        _uiState.update { it.copy(isRecordingVoice = false, voiceRecordDurationMs = 0L) }
+    }
+
+    private fun sendVoiceNoteInternal(audioBytes: ByteArray, durationMs: Long) {
+        val user = _uiState.value.currentUser ?: return
+        val active = _uiState.value.activeChat ?: return
+        val replying = _uiState.value.replyingToMessage
+
+        _uiState.update { it.copy(isSending = true) }
+        viewModelScope.launch {
+            try {
+                repository.sendChatMessage(
+                    chatId = active.id,
+                    sender = user,
+                    text = "",
+                    mediaBytes = audioBytes,
+                    filename = "voice_${System.currentTimeMillis()}.m4a",
+                    mimeType = "audio/mp4",
+                    mediaType = "audio",
+                    mediaDurationMs = durationMs,
+                    replyToMessageId = replying?.id,
+                    replyToSenderName = replying?.senderDisplayName,
+                    replyToText = replying?.text
+                )
+                val updatedDb = repository.getChatsDatabase(forceRemote = false)
+                val updatedActive = if (active.isOfficialGroup) updatedDb.officialGroup else updatedDb.directChats.firstOrNull { it.id == active.id }
+                _uiState.update {
+                    it.copy(
+                        activeChat = updatedActive ?: it.activeChat,
+                        replyingToMessage = null,
+                        isSending = false
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(isSending = false, errorMessage = "Error al enviar audio: ${e.message}") }
+            }
+        }
     }
 
     fun sendMessage() {
         val user = _uiState.value.currentUser ?: return
         val active = _uiState.value.activeChat ?: return
         val text = _uiState.value.messageInputText.trim()
-        val imageBytes = _uiState.value.selectedImageBytes
+        val mediaBytes = _uiState.value.selectedMediaBytes
+        val mediaType = _uiState.value.selectedMediaType
+        val replying = _uiState.value.replyingToMessage
 
-        if (text.isBlank() && (imageBytes == null || imageBytes.isEmpty())) return
+        if (text.isBlank() && (mediaBytes == null || mediaBytes.isEmpty())) return
 
         _uiState.update { it.copy(isSending = true) }
+
         viewModelScope.launch {
             try {
-                val sent = repository.sendChatMessage(
+                val mime = when (mediaType) {
+                    "video" -> "video/mp4"
+                    "audio" -> "audio/mp4"
+                    else -> "image/jpeg"
+                }
+                val ext = when (mediaType) {
+                    "video" -> "mp4"
+                    "audio" -> "m4a"
+                    else -> "jpg"
+                }
+                val filename = "upload_${System.currentTimeMillis()}.$ext"
+
+                repository.sendChatMessage(
                     chatId = active.id,
                     sender = user,
                     text = text,
-                    mediaBytes = imageBytes,
-                    filename = "chat_img_${System.currentTimeMillis()}.jpg",
-                    mimeType = "image/jpeg"
+                    mediaBytes = mediaBytes,
+                    filename = filename,
+                    mimeType = mime,
+                    mediaType = mediaType,
+                    mediaDurationMs = _uiState.value.selectedMediaDurationMs,
+                    replyToMessageId = replying?.id,
+                    replyToSenderName = replying?.senderDisplayName,
+                    replyToText = replying?.text
                 )
 
-                val updatedMessages = active.messages + sent
-                val updatedChat = active.copy(
-                    messages = updatedMessages,
-                    lastMessage = if (imageBytes != null && text.isBlank()) "📷 Imagen" else text,
-                    lastMessageSender = user.displayName,
-                    lastMessageTime = sent.createdAt
-                )
+                val updatedDb = repository.getChatsDatabase(forceRemote = false)
+                val updatedActive = if (active.isOfficialGroup) updatedDb.officialGroup else updatedDb.directChats.firstOrNull { it.id == active.id }
 
                 _uiState.update {
                     it.copy(
-                        activeChat = updatedChat,
+                        activeChat = updatedActive ?: it.activeChat,
                         messageInputText = "",
-                        selectedImageUri = null,
-                        selectedImageBytes = null,
+                        replyingToMessage = null,
+                        selectedMediaUri = null,
+                        selectedMediaBytes = null,
+                        selectedMediaType = "",
                         isSending = false
                     )
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(isSending = false, errorMessage = "Error al enviar mensaje: ${e.message}") }
+                _uiState.update {
+                    it.copy(isSending = false, errorMessage = "Error al enviar mensaje: ${e.message}")
+                }
             }
+        }
+    }
+
+    fun setMessageReaction(messageId: String, emoji: String) {
+        val user = _uiState.value.currentUser ?: return
+        val active = _uiState.value.activeChat ?: return
+
+        viewModelScope.launch {
+            try {
+                repository.setChatMessageReaction(active.id, messageId, user.username, emoji)
+                val updatedDb = repository.getChatsDatabase(forceRemote = false)
+                val updatedActive = if (active.isOfficialGroup) updatedDb.officialGroup else updatedDb.directChats.firstOrNull { it.id == active.id }
+                _uiState.update { it.copy(activeChat = updatedActive ?: it.activeChat) }
+            } catch (_: Exception) {}
         }
     }
 
@@ -299,12 +439,11 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 repository.editChatMessage(active.id, messageId, newText, user.username, user.isAdmin)
-                val updatedMessages = active.messages.map {
-                    if (it.id == messageId) it.copy(text = newText, isEdited = true, editedAt = System.currentTimeMillis()) else it
-                }
+                val updatedDb = repository.getChatsDatabase(forceRemote = false)
+                val updatedActive = if (active.isOfficialGroup) updatedDb.officialGroup else updatedDb.directChats.firstOrNull { it.id == active.id }
                 _uiState.update {
                     it.copy(
-                        activeChat = active.copy(messages = updatedMessages),
+                        activeChat = updatedActive ?: it.activeChat,
                         editingMessageId = null,
                         editingMessageText = ""
                     )
@@ -322,37 +461,36 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 repository.deleteChatMessage(active.id, messageId, user.username, user.isAdmin)
-                val updatedMessages = active.messages.filterNot { it.id == messageId }
-                _uiState.update {
-                    it.copy(activeChat = active.copy(messages = updatedMessages))
-                }
+                val updatedDb = repository.getChatsDatabase(forceRemote = false)
+                val updatedActive = if (active.isOfficialGroup) updatedDb.officialGroup else updatedDb.directChats.firstOrNull { it.id == active.id }
+                _uiState.update { it.copy(activeChat = updatedActive ?: it.activeChat) }
             } catch (e: Exception) {
                 _uiState.update { it.copy(errorMessage = "Error al eliminar mensaje: ${e.message}") }
             }
         }
     }
 
-    fun reactToMessage(messageId: String, emoji: String) {
+    fun startDirectChatWith(targetUsername: String, onChatReady: (String) -> Unit) {
         val user = _uiState.value.currentUser ?: return
-        val active = _uiState.value.activeChat ?: return
-
         viewModelScope.launch {
             try {
-                repository.setChatMessageReaction(active.id, messageId, user.username, emoji)
-                val updatedMessages = active.messages.map { msg ->
-                    if (msg.id == messageId) {
-                        val current = msg.reactions[user.username]
-                        val updated = msg.reactions.toMutableMap()
-                        if (current == emoji) updated.remove(user.username) else updated[user.username] = emoji
-                        msg.copy(reactions = updated)
-                    } else msg
-                }
-                _uiState.update { it.copy(activeChat = active.copy(messages = updatedMessages)) }
-            } catch (_: Exception) {}
+                val directChat = repository.getOrCreateDirectChat(user.username, targetUsername)
+                _uiState.update { it.copy(activeChat = directChat, showNewChatDialog = false) }
+                onChatReady(directChat.id)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = "Error al iniciar chat: ${e.message}") }
+            }
         }
     }
 
-    // Administración del Grupo Oficial
+    fun openNewChatDialog() {
+        _uiState.update { it.copy(showNewChatDialog = true) }
+    }
+
+    fun closeNewChatDialog() {
+        _uiState.update { it.copy(showNewChatDialog = false) }
+    }
+
     fun openManageGroupDialog() {
         val group = _uiState.value.officialGroup ?: return
         _uiState.update {
@@ -407,15 +545,18 @@ class ChatViewModel(
                     newName = state.groupEditName,
                     newDescription = state.groupEditDescription,
                     newAvatarBytes = state.groupEditAvatarBytes,
-                    isAdmin = user.isAdmin
+                    isAdmin = true
                 )
-                loadChats()
+                val updatedDb = repository.getChatsDatabase(forceRemote = false)
                 _uiState.update {
                     it.copy(
+                        officialGroup = updatedDb.officialGroup,
+                        activeChat = if (it.activeChat?.isOfficialGroup == true) updatedDb.officialGroup else it.activeChat,
                         showManageGroupDialog = false,
                         isUpdatingGroup = false
                     )
                 }
+                resolveUsersAndAvatars()
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(isUpdatingGroup = false, errorMessage = "Error al actualizar grupo: ${e.message}")
@@ -424,12 +565,30 @@ class ChatViewModel(
         }
     }
 
-    fun openNewChatDialog() {
-        _uiState.update { it.copy(showNewChatDialog = true) }
+    fun closeActiveChat() {
+        _uiState.update {
+            it.copy(
+                activeChat = null,
+                replyingToMessage = null,
+                selectedMediaUri = null,
+                selectedMediaBytes = null,
+                selectedMediaType = "",
+                editingMessageId = null,
+                editingMessageText = ""
+            )
+        }
     }
 
-    fun closeNewChatDialog() {
-        _uiState.update { it.copy(showNewChatDialog = false) }
+    fun startDirectChat(targetUsername: String, onChatReady: (String) -> Unit) {
+        startDirectChatWith(targetUsername, onChatReady)
+    }
+
+    fun reactToMessage(messageId: String, emoji: String) {
+        setMessageReaction(messageId, emoji)
+    }
+
+    fun removeSelectedImage() {
+        removeSelectedMedia()
     }
 
     fun clearError() {

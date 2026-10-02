@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
@@ -348,7 +349,9 @@ fun PostDetailScreen(
                             if (reactionSummary.isNotEmpty()) {
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { viewModel.setShowReactionsDetail(true) },
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -357,7 +360,7 @@ fun PostDetailScreen(
                                             shape = RoundedCornerShape(12.dp),
                                             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                                             modifier = Modifier.clickable {
-                                                viewModel.setReaction(emoji)
+                                                viewModel.setShowReactionsDetail(true)
                                             }
                                         ) {
                                             Row(
@@ -377,7 +380,7 @@ fun PostDetailScreen(
                                 }
                             }
 
-                            if (post.text.isNotBlank()) {
+                            if (post.text.isNotBlank() && !post.isTextOnly) {
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
                                     text = post.text,
@@ -416,17 +419,23 @@ fun PostDetailScreen(
                             val isAdmin = state.currentUser?.isAdmin == true
                             val canManageComment = state.currentUser != null && (isAdmin || isAuthor || post.authorUsername.equals(state.currentUser?.username, ignoreCase = true))
                             val canEdit = state.currentUser != null && (isAdmin || isAuthor)
+                            val isReply = comment.replyToCommentId != null
 
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    .padding(
+                                        start = if (isReply) 40.dp else 16.dp,
+                                        end = 16.dp,
+                                        top = 6.dp,
+                                        bottom = 6.dp
+                                    ),
                                 verticalAlignment = Alignment.Top
                             ) {
                                 AvatarImage(
                                     avatarUrl = state.resolvedAvatarUrls[comment.authorAvatarRef] ?: state.resolvedAvatarUrls[comment.authorUsername],
                                     displayName = comment.authorDisplayName,
-                                    size = 36.dp,
+                                    size = if (isReply) 30.dp else 36.dp,
                                     showOnlineIndicator = true,
                                     isOnline = state.userOnlineStatus[comment.authorUsername] == true,
                                     modifier = Modifier.clickable { onNavigateToProfile(comment.authorUsername) }
@@ -457,12 +466,38 @@ fun PostDetailScreen(
                                             )
                                         }
                                     }
+
+                                    if (comment.replyToUsername != null) {
+                                        Text(
+                                            text = "Respondiendo a ${comment.replyToUsername}",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
                                         text = comment.text,
                                         fontSize = 13.sp,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
+
+                                    // Botón responder
+                                    Row(
+                                        modifier = Modifier.padding(top = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = "Responder",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier
+                                                .clickable { viewModel.setReplyingToComment(comment) }
+                                                .padding(end = 12.dp)
+                                        )
+                                    }
                                 }
 
                                 if (canEdit) {
@@ -506,57 +541,98 @@ fun PostDetailScreen(
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 4.dp
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = state.newCommentText,
-                            onValueChange = viewModel::onCommentChange,
-                            placeholder = { Text("Escribe un comentario...", fontSize = 14.sp) },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("comment_input_field"),
-                            shape = CircleShape,
-                            colors = OutlinedTextFieldDefaults.colors(
-                                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-                            ),
-                            maxLines = 3,
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.Sentences,
-                                imeAction = ImeAction.Send
-                            ),
-                            keyboardActions = KeyboardActions(
-                                onSend = { submitCommentAction() }
-                            )
-                        )
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Banner de respuesta si está activo
+                        state.replyingToComment?.let { rep ->
+                            Surface(
+                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "Respondiendo a ${rep.authorDisplayName} (${rep.authorUsername}): \"${rep.text.take(30)}...\"",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    IconButton(
+                                        onClick = { viewModel.setReplyingToComment(null) },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Close,
+                                            contentDescription = "Cancelar respuesta",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
 
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        IconButton(
-                            onClick = submitCommentAction,
-                            enabled = state.newCommentText.isNotBlank() && !state.isSubmittingComment,
+                        Row(
                             modifier = Modifier
-                                .size(44.dp)
-                                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                .testTag("send_comment_button")
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (state.isSubmittingComment) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(18.dp),
-                                    color = Color.White,
-                                    strokeWidth = 2.dp
+                            OutlinedTextField(
+                                value = state.newCommentText,
+                                onValueChange = viewModel::onCommentChange,
+                                placeholder = {
+                                    val holderText = if (state.replyingToComment != null) {
+                                        "Responde a ${state.replyingToComment?.authorDisplayName}..."
+                                    } else {
+                                        "Escribe un comentario..."
+                                    }
+                                    Text(holderText, fontSize = 14.sp)
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("comment_input_field"),
+                                shape = CircleShape,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                                ),
+                                maxLines = 3,
+                                keyboardOptions = KeyboardOptions(
+                                    capitalization = KeyboardCapitalization.Sentences,
+                                    imeAction = ImeAction.Send
+                                ),
+                                keyboardActions = KeyboardActions(
+                                    onSend = { submitCommentAction() }
                                 )
-                            } else {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Send,
-                                    contentDescription = "Enviar",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
+                            )
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            IconButton(
+                                onClick = submitCommentAction,
+                                enabled = state.newCommentText.isNotBlank() && !state.isSubmittingComment,
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                    .testTag("send_comment_button")
+                            ) {
+                                if (state.isSubmittingComment) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        color = Color.White,
+                                        strokeWidth = 2.dp
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "Enviar",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -587,6 +663,17 @@ fun PostDetailScreen(
                         Text("Cancelar")
                     }
                 }
+            )
+        }
+
+        // Hoja de detalles de reacciones (quién reaccionó a este post)
+        val currentPost = state.post
+        if (state.showReactionsDetail && currentPost != null) {
+            com.example.ui.components.ReactionsDetailSheet(
+                reactions = currentPost.allReactions,
+                users = state.allUsers,
+                onDismiss = { viewModel.setShowReactionsDetail(false) },
+                onNavigateToProfile = onNavigateToProfile
             )
         }
 

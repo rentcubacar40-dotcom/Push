@@ -17,6 +17,8 @@ import kotlinx.coroutines.launch
 data class CreatePostUiState(
     val selectedUri: Uri? = null,
     val isVideo: Boolean = false,
+    val isTextOnlyMode: Boolean = false,
+    val selectedGradient: String = "teal",
     val fileSize: Long = 0L,
     val fileSizeFormatted: String = "0 MB",
     val isOverLimit: Boolean = false,
@@ -37,6 +39,14 @@ class CreatePostViewModel(
 
     fun onCaptionChange(text: String) {
         _uiState.update { it.copy(captionText = text) }
+    }
+
+    fun setTextOnlyMode(isTextOnly: Boolean) {
+        _uiState.update { it.copy(isTextOnlyMode = isTextOnly) }
+    }
+
+    fun selectGradient(gradient: String) {
+        _uiState.update { it.copy(selectedGradient = gradient) }
     }
 
     fun onMediaSelected(context: Context, uri: Uri?) {
@@ -72,6 +82,7 @@ class CreatePostViewModel(
             it.copy(
                 selectedUri = uri,
                 isVideo = isVideo,
+                isTextOnlyMode = false,
                 fileSize = sizeBytes,
                 fileSizeFormatted = formatted,
                 isOverLimit = isOver && isVideo, // Solo bloquea si es video mayor a 4MB
@@ -83,8 +94,54 @@ class CreatePostViewModel(
 
     fun publish(context: Context, onSuccess: () -> Unit) {
         val state = _uiState.value
+
+        if (state.isTextOnlyMode) {
+            if (state.captionText.isBlank()) {
+                _uiState.update { it.copy(errorMessage = "Escribe el texto de tu publicación.") }
+                return
+            }
+
+            _uiState.update {
+                it.copy(isUploading = true, uploadProgress = 0.5f, errorMessage = null)
+            }
+
+            viewModelScope.launch {
+                try {
+                    val session = repository.sessionManager.userSessionFlow.firstOrNull()
+                        ?: throw IllegalStateException("Sesión no iniciada.")
+
+                    repository.createPost(
+                        author = session,
+                        text = state.captionText,
+                        mediaBytes = null,
+                        filename = "",
+                        mimeType = "",
+                        isVideo = false,
+                        backgroundColor = state.selectedGradient,
+                        onProgress = { progress ->
+                            _uiState.update { it.copy(uploadProgress = progress) }
+                        }
+                    )
+
+                    _uiState.update {
+                        it.copy(isUploading = false, uploadProgress = 1f, isSuccess = true)
+                    }
+                    onSuccess()
+                } catch (e: Exception) {
+                    _uiState.update {
+                        it.copy(
+                            isUploading = false,
+                            uploadProgress = 0f,
+                            errorMessage = e.message ?: "Error al publicar."
+                        )
+                    }
+                }
+            }
+            return
+        }
+
         val uri = state.selectedUri ?: run {
-            _uiState.update { it.copy(errorMessage = "Selecciona una imagen o video para publicar.") }
+            _uiState.update { it.copy(errorMessage = "Selecciona una imagen, video o activa el modo Solo Texto.") }
             return
         }
 

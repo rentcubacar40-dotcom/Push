@@ -79,6 +79,7 @@ fun PostCard(
     onCommentClicked: () -> Unit,
     onAuthorClicked: () -> Unit,
     onDeleteClicked: () -> Unit,
+    onShowReactionsDetail: () -> Unit = {},
     isAuthorOnline: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -207,90 +208,128 @@ fun PostCard(
                     }
                 }
 
-                // Texto de la publicación
-                if (post.text.isNotBlank()) {
+                // Contenedor Multimedia o Solo Texto con Gradiente
+                if (post.isTextOnly) {
                     Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = post.text,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-
-                // Contenedor Multimedia (Imagen o Video)
-                Spacer(modifier = Modifier.height(12.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(1.22f)
-                        .clip(RoundedCornerShape(20.dp))
-                        .combinedClickable(
-                            onDoubleClick = {
-                                if (!isLiked) {
-                                    onReactionSelected("❤️")
-                                }
-                                showDoubleTapHeart = true
-                            },
-                            onClick = onCommentClicked
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (post.isVideo) {
-                        VideoPlayerView(
-                            videoUrl = finalMediaUrl,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(20.dp))
-                        )
-                    } else {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(LocalContext.current)
-                                .data(finalMediaUrl)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Imagen de la publicación",
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(RoundedCornerShape(20.dp)),
-                            loading = {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(rememberShimmerBrush())
-                                )
-                            },
-                            error = {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Icon(
-                                            imageVector = Icons.Default.BrokenImage,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.size(36.dp)
-                                        )
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = "Error al cargar multimedia",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                    val gradientColors = remember(post.backgroundColor) {
+                        com.example.ui.theme.PostGradients.getGradient(post.backgroundColor)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(androidx.compose.ui.graphics.Brush.linearGradient(gradientColors))
+                            .combinedClickable(
+                                onDoubleClick = {
+                                    if (!isLiked) {
+                                        onReactionSelected("❤️")
                                     }
-                                }
-                            }
+                                    showDoubleTapHeart = true
+                                },
+                                onClick = onCommentClicked
+                            )
+                            .padding(20.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = post.text,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            lineHeight = 26.sp
+                        )
+
+                        DoubleTapHeartAnimation(
+                            visible = showDoubleTapHeart,
+                            onAnimationEnd = { showDoubleTapHeart = false }
+                        )
+                    }
+                } else {
+                    if (post.text.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Text(
+                            text = post.text,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
 
-                    DoubleTapHeartAnimation(
-                        visible = showDoubleTapHeart,
-                        onAnimationEnd = { showDoubleTapHeart = false }
-                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1.22f)
+                            .clip(RoundedCornerShape(20.dp))
+                            .combinedClickable(
+                                onDoubleClick = {
+                                    if (!isLiked) {
+                                        onReactionSelected("❤️")
+                                    }
+                                    showDoubleTapHeart = true
+                                },
+                                onClick = onCommentClicked
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (post.isVideo) {
+                            VideoPlayerView(
+                                videoUrl = finalMediaUrl,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(20.dp))
+                            )
+                        } else {
+                            SubcomposeAsyncImage(
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(finalMediaUrl)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Imagen de la publicación",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(RoundedCornerShape(20.dp)),
+                                loading = {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(rememberShimmerBrush())
+                                    )
+                                },
+                                error = {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(
+                                                imageVector = Icons.Default.BrokenImage,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = "Error al cargar multimedia",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
+                                }
+                            )
+                        }
+
+                        DoubleTapHeartAnimation(
+                            visible = showDoubleTapHeart,
+                            onAnimationEnd = { showDoubleTapHeart = false }
+                        )
+                    }
                 }
 
                 // Chips de Resumen de Reacciones
@@ -298,7 +337,9 @@ fun PostCard(
                 if (reactionSummary.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(onClick = onShowReactionsDetail),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -307,7 +348,7 @@ fun PostCard(
                                 shape = RoundedCornerShape(12.dp),
                                 color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
                                 modifier = Modifier.clickable {
-                                    onReactionSelected(emoji)
+                                    onShowReactionsDetail()
                                 }
                             ) {
                                 Row(

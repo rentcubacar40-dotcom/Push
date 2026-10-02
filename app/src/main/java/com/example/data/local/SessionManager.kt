@@ -21,6 +21,7 @@ class SessionManager(private val context: Context) {
         val KEY_ROLE = stringPreferencesKey("session_role")
         val KEY_AVATAR_REF = stringPreferencesKey("session_avatar_ref")
         val KEY_THEME_MODE = stringPreferencesKey("app_theme_mode") // "SYSTEM", "LIGHT", "DARK"
+        val KEY_COLOR_THEME = stringPreferencesKey("app_color_theme") // "TEAL", "VIOLET", "MAGENTA", "BLUE", "EMERALD", "AMBER"
     }
 
     val userSessionFlow: Flow<UserSession?> = context.dataStore.data.map { prefs ->
@@ -43,6 +44,10 @@ class SessionManager(private val context: Context) {
 
     val themeModeFlow: Flow<String> = context.dataStore.data.map { prefs ->
         prefs[KEY_THEME_MODE] ?: "SYSTEM"
+    }
+
+    val colorThemeFlow: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[KEY_COLOR_THEME] ?: "TEAL"
     }
 
     suspend fun saveSession(user: User) {
@@ -69,6 +74,12 @@ class SessionManager(private val context: Context) {
     suspend fun setThemeMode(mode: String) {
         context.dataStore.edit { prefs ->
             prefs[KEY_THEME_MODE] = mode
+        }
+    }
+
+    suspend fun setColorTheme(colorTheme: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_COLOR_THEME] = colorTheme
         }
     }
 

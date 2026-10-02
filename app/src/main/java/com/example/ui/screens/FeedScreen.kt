@@ -214,10 +214,21 @@ fun FeedScreen(
                         onCommentClicked = { onNavigateToPostDetail(post.id) },
                         onAuthorClicked = { onNavigateToProfile(post.authorUsername) },
                         onDeleteClicked = { viewModel.deletePost(post.id) },
+                        onShowReactionsDetail = { viewModel.openReactionsDetail(post) },
                         isAuthorOnline = state.userOnlineStatus[post.authorUsername] == true
                     )
                 }
             }
+        }
+
+        // Hoja de detalles de reacciones (quién reaccionó y con qué emoji)
+        state.showReactionsForPost?.let { post ->
+            com.example.ui.components.ReactionsDetailSheet(
+                reactions = post.allReactions,
+                users = state.allUsers,
+                onDismiss = viewModel::closeReactionsDetail,
+                onNavigateToProfile = onNavigateToProfile
+            )
         }
     }
 }

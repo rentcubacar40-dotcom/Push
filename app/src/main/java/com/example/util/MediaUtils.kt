@@ -134,6 +134,16 @@ object MediaUtils {
     }
 
     /**
+     * Formatea milisegundos a formato mm:ss para audios y videos.
+     */
+    fun formatDuration(durationMs: Long): String {
+        val totalSec = durationMs / 1000
+        val min = totalSec / 60
+        val sec = totalSec % 60
+        return String.format(java.util.Locale.US, "%02d:%02d", min, sec)
+    }
+
+    /**
      * Formatea un timestamp a tiempo relativo en español.
      */
     fun formatRelativeTime(timestamp: Long): String {

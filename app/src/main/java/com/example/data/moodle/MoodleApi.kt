@@ -85,12 +85,14 @@ class MoodleApi(
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .cookieJar(cookieJar)
+        .proxy(java.net.Proxy.NO_PROXY) // Seguridad activa contra inspectores y proxies intermedios (HTTP Injector, etc.)
         .followRedirects(true)
         .followSslRedirects(true)
         .retryOnConnectionFailure(true)
         .addInterceptor { chain ->
             val request = chain.request().newBuilder()
                 .header("User-Agent", "MoodleMobile/Moodgram")
+                .header("X-Requested-With", "com.aistudio.moodgram")
                 .build()
             chain.proceed(request)
         }

@@ -1,70 +1,73 @@
 package com.example.ui.theme
 
-import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme = darkColorScheme(
-    primary = MoodgramViolet,
-    onPrimary = Color.White,
-    primaryContainer = MoodgramVioletDark,
-    onPrimaryContainer = Color(0xFFE9D5FF),
-    secondary = MoodgramMagenta,
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFF831843),
-    onSecondaryContainer = Color(0xFFFCE7F3),
-    tertiary = MoodgramOrange,
-    onTertiary = Color.White,
-    background = DarkBackground,
-    onBackground = DarkOnBackground,
-    surface = DarkSurface,
-    onSurface = DarkOnSurface,
-    surfaceVariant = DarkSurfaceVariant,
-    onSurfaceVariant = DarkOnSurfaceVariant,
-    outline = DarkOutline
-)
+fun getThemeColorScheme(darkTheme: Boolean, colorTheme: String): ColorScheme {
+    val (primary, primaryDark, secondary) = when (colorTheme.uppercase()) {
+        "VIOLET" -> Triple(MoodgramViolet, MoodgramVioletDark, MoodgramMagenta)
+        "MAGENTA" -> Triple(MoodgramMagenta, MoodgramMagentaDark, MoodgramIndigo)
+        "BLUE" -> Triple(MoodgramBlue, MoodgramBlueDark, MoodgramCyan)
+        "EMERALD" -> Triple(MoodgramEmerald, MoodgramEmeraldDark, MoodgramTeal)
+        "AMBER" -> Triple(MoodgramAmber, MoodgramAmberDark, MoodgramOrange)
+        else -> Triple(MoodgramTeal, MoodgramTealDark, MoodgramCyan) // Default TEAL
+    }
 
-private val LightColorScheme = lightColorScheme(
-    primary = MoodgramViolet,
-    onPrimary = Color.White,
-    primaryContainer = LightSurfaceVariant,
-    onPrimaryContainer = MoodgramVioletDark,
-    secondary = MoodgramMagenta,
-    onSecondary = Color.White,
-    secondaryContainer = Color(0xFFFCE7F3),
-    onSecondaryContainer = Color(0xFF831843),
-    tertiary = MoodgramOrange,
-    onTertiary = Color.White,
-    background = LightBackground,
-    onBackground = LightOnBackground,
-    surface = LightSurface,
-    onSurface = LightOnSurface,
-    surfaceVariant = LightSurfaceVariant,
-    onSurfaceVariant = LightOnSurfaceVariant,
-    outline = LightOutline
-)
+    return if (darkTheme) {
+        darkColorScheme(
+            primary = primary,
+            onPrimary = Color.White,
+            primaryContainer = primaryDark,
+            onPrimaryContainer = Color(0xFFCCFBF1),
+            secondary = secondary,
+            onSecondary = Color.White,
+            secondaryContainer = Color(0xFF1E293B),
+            onSecondaryContainer = Color(0xFFF1F5F9),
+            tertiary = MoodgramOrange,
+            onTertiary = Color.White,
+            background = DarkBackground,
+            onBackground = DarkOnBackground,
+            surface = DarkSurface,
+            onSurface = DarkOnSurface,
+            surfaceVariant = DarkSurfaceVariant,
+            onSurfaceVariant = DarkOnSurfaceVariant,
+            outline = DarkOutline
+        )
+    } else {
+        lightColorScheme(
+            primary = primary,
+            onPrimary = Color.White,
+            primaryContainer = LightSurfaceVariant,
+            onPrimaryContainer = primaryDark,
+            secondary = secondary,
+            onSecondary = Color.White,
+            secondaryContainer = Color(0xFFF1F5F9),
+            onSecondaryContainer = Color(0xFF0F172A),
+            tertiary = MoodgramOrange,
+            onTertiary = Color.White,
+            background = LightBackground,
+            onBackground = LightOnBackground,
+            surface = LightSurface,
+            onSurface = LightOnSurface,
+            surfaceVariant = LightSurfaceVariant,
+            onSurfaceVariant = LightOnSurfaceVariant,
+            outline = LightOutline
+        )
+    }
+}
 
 @Composable
 fun MyApplicationTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false, // Preferir la identidad de marca de Moodgram con fallback a dynamic
+    colorTheme: String = "TEAL",
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
+    val colorScheme = getThemeColorScheme(darkTheme, colorTheme)
 
     MaterialTheme(
         colorScheme = colorScheme,
