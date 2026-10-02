@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Camera Top Bump -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,30 C48,27.8 49.8,26 52,26 L56,26 C58.2,26 60,27.8 60,30 L60,34 L48,34 Z" />
+    <!-- Camera Body -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M33,34 C29.7,34 27,36.7 27,40 L27,72 C27,75.3 29.7,78 33,78 L75,78 C78.3,78 81,75.3 81,72 L81,40 C81,36.7 78.3,34 75,34 Z" />
+    <!-- Flash dot -->
+    <path
+        android:fillColor="#7C3AED"
+        android:pathData="M72,42 m-3,0 a3,3 0 1,0 6,0 a3,3 0 1,0 -6,0" />
+    <!-- Outer Lens Ring cutout -->
+    <path
+        android:fillColor="#7C3AED"
+        android:pathData="M54,40 C45.2,40 38,47.2 38,56 C38,64.8 45.2,72 54,72 C62.8,72 70,64.8 70,56 C70,47.2 62.8,40 54,40 Z M54,67 C47.9,67 43,62.1 43,56 C43,49.9 47.9,45 54,45 C60.1,45 65,49.9 65,56 C65,62.1 60.1,67 54,67 Z" />
+    <!-- Heart in Center of Lens -->
+    <path
+        android:fillColor="#EC4899"
+        android:pathData="M54,62 C53.5,62 53.1,61.8 52.7,61.4 C50.2,59.1 47,56.1 47,53.2 C47,51.1 48.6,49.5 50.7,49.5 C52,49.5 53.2,50.1 54,51.1 C54.8,50.1 56,49.5 57.3,49.5 C59.4,49.5 61,51.1 61,53.2 C61,56.1 57.8,59.1 55.3,61.4 C54.9,61.8 54.5,62 54,62 Z" />
+</vector>

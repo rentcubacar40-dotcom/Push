@@ -1,0 +1,6 @@
+{
+  "name": "Moodgram",
+  "description": "Red social con fotos y videos conectada con almacenamiento en la nube.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

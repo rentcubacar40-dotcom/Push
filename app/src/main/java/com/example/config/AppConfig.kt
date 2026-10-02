@@ -1,0 +1,29 @@
+package com.example.config
+
+/**
+ * Configuración central de Moodgram.
+ * Almacena los parámetros de conexión a Moodle y credenciales de administración.
+ */
+object AppConfig {
+    const val MOODLE_URL = "https://cursos.ucf.edu.cu/"
+    const val MOODLE_USER = "julianrene"
+    const val MOODLE_PASS = "Transfer60*"
+    const val MAX_FILE_MB = 4
+    const val ADMIN_USERNAME = "@Eliel_21"
+    const val ADMIN_PASSWORD = "ElielElielAdmin543345.."
+
+    // Constantes de archivos JSON en las evidencias de Moodle
+    const val USERS_FILE_PREFIX = "moodgram_usuarios"
+    const val POSTS_FILE_PREFIX = "moodgram_publicaciones"
+    const val USERS_DEFAULT_FILE = "moodgram_usuarios.json"
+    const val POSTS_DEFAULT_FILE = "moodgram_publicaciones.json"
+
+    // Parámetros de servicio de Moodle
+    const val MOODLE_SERVICE = "moodle_mobile_app"
+
+    // Límites de compresión
+    const val MAX_AVATAR_DIMENSION = 512
+    const val MAX_IMAGE_DIMENSION = 1920
+    const val MAX_AVATAR_BYTES = 300 * 1024 // 300 KB objetivo para avatares
+    const val MAX_FILE_BYTES = MAX_FILE_MB * 1024 * 1024 // 4 MB exactos
+}
