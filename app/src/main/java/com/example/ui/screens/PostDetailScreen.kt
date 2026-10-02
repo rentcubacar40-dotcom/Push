@@ -208,30 +208,61 @@ fun PostDetailScreen(
                             }
                         }
 
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(1.15f)
-                                .background(Color.Black),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (post.isVideo) {
-                                VideoPlayerView(
-                                    videoUrl = sanitizedMedia,
-                                    modifier = Modifier.fillMaxSize(),
-                                    autoPlay = true,
-                                    initiallyMuted = false
+                        if (post.isTextOnly || post.mediaUrl.isBlank()) {
+                            val gradientColors = remember(post.backgroundColor) {
+                                com.example.ui.theme.PostGradients.getGradient(post.backgroundColor)
+                            }
+                            val isWhiteBg = com.example.ui.theme.PostGradients.isLight(post.backgroundColor)
+                            val postTextColor = com.example.ui.theme.PostGradients.getTextColor(post.backgroundColor)
+
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(240.dp)
+                                    .background(androidx.compose.ui.graphics.Brush.linearGradient(gradientColors))
+                                    .then(
+                                        if (isWhiteBg) {
+                                            Modifier.border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f))
+                                        } else Modifier
+                                    )
+                                    .padding(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = post.text,
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = postTextColor,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    lineHeight = 28.sp
                                 )
-                            } else {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(sanitizedMedia)
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = "Foto completa",
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxSize()
-                                )
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(1.15f)
+                                    .background(Color.Black),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (post.isVideo) {
+                                    VideoPlayerView(
+                                        videoUrl = sanitizedMedia,
+                                        modifier = Modifier.fillMaxSize(),
+                                        autoPlay = true,
+                                        initiallyMuted = false
+                                    )
+                                } else {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(LocalContext.current)
+                                            .data(sanitizedMedia)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = "Foto completa",
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
                             }
                         }
                     }
@@ -320,17 +351,25 @@ fun PostDetailScreen(
                                 Surface(
                                     shape = RoundedCornerShape(24.dp),
                                     color = MaterialTheme.colorScheme.surfaceVariant,
-                                    tonalElevation = 4.dp
+                                    tonalElevation = 6.dp
                                 ) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         AppConfig.SUPPORTED_REACTIONS.forEach { emoji ->
+                                            val isCurrent = userReaction == emoji
                                             Box(
                                                 modifier = Modifier
                                                     .size(36.dp)
                                                     .clip(CircleShape)
+                                                    .background(if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
+                                                .border(
+                                                    width = if (isCurrent) 1.5.dp else 0.dp,
+                                                    color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                    shape = CircleShape
+                                                )
                                                     .clickable {
                                                         viewModel.setReaction(emoji)
                                                         showReactionPicker = false
@@ -338,6 +377,42 @@ fun PostDetailScreen(
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Text(text = emoji, fontSize = 20.sp)
+                                            }
+                                        }
+
+                                        if (userReaction != null) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(34.dp)
+                                                    .clip(CircleShape)
+                                                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
+                                                    .clickable {
+                                                        viewModel.setReaction(userReaction)
+                                                        showReactionPicker = false
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "Quitar reacción",
+                                                    tint = MaterialTheme.colorScheme.error,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        } else {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(30.dp)
+                                                    .clip(CircleShape)
+                                                    .clickable { showReactionPicker = false },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "Cerrar",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
                                             }
                                         }
                                     }

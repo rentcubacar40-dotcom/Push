@@ -27,9 +27,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
@@ -214,12 +216,20 @@ fun PostCard(
                     val gradientColors = remember(post.backgroundColor) {
                         com.example.ui.theme.PostGradients.getGradient(post.backgroundColor)
                     }
+                    val isWhiteBg = com.example.ui.theme.PostGradients.isLight(post.backgroundColor)
+                    val postTextColor = com.example.ui.theme.PostGradients.getTextColor(post.backgroundColor)
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(200.dp)
                             .clip(RoundedCornerShape(20.dp))
                             .background(androidx.compose.ui.graphics.Brush.linearGradient(gradientColors))
+                            .then(
+                                if (isWhiteBg) {
+                                    Modifier.border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
+                                } else Modifier
+                            )
                             .combinedClickable(
                                 onDoubleClick = {
                                     if (!isLiked) {
@@ -236,7 +246,7 @@ fun PostCard(
                             text = post.text,
                             fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = postTextColor,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             lineHeight = 26.sp
                         )
@@ -481,6 +491,20 @@ fun PostCard(
             }
         }
 
+        // Capa invisible para descartar al tocar afuera
+        if (showReactionPicker) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) {
+                        showReactionPicker = false
+                    }
+            )
+        }
+
         // Popup Barra de Reacciones flotante (❤️, 🔥, 😂, 😮, 😢, 👏)
         AnimatedVisibility(
             visible = showReactionPicker,
@@ -500,13 +524,21 @@ fun PostCard(
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     AppConfig.SUPPORTED_REACTIONS.forEach { emoji ->
+                        val isCurrent = userReaction == emoji
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
+                                .background(if (isCurrent) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f) else Color.Transparent)
+                                .border(
+                                    width = if (isCurrent) 1.5.dp else 0.dp,
+                                    color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    shape = CircleShape
+                                )
                                 .clickable {
                                     onReactionSelected(emoji)
                                     showReactionPicker = false
@@ -514,6 +546,44 @@ fun PostCard(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(text = emoji, fontSize = 20.sp)
+                        }
+                    }
+
+                    // Opción para quitar reacción si ya tiene una
+                    if (userReaction != null) {
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.error.copy(alpha = 0.12f))
+                                .clickable {
+                                    onReactionSelected(userReaction)
+                                    showReactionPicker = false
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Quitar reacción",
+                                tint = MaterialTheme.colorScheme.error,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    } else {
+                        // Botón de cerrar selector
+                        Box(
+                            modifier = Modifier
+                                .size(30.dp)
+                                .clip(CircleShape)
+                                .clickable { showReactionPicker = false },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Cerrar",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
                         }
                     }
                 }

@@ -22,6 +22,15 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 
+data class SendingFileStatus(
+    val uri: Uri,
+    val name: String,
+    val sizeBytes: Long,
+    val progress: Float = 0f,
+    val isUploading: Boolean = true,
+    val error: String? = null
+)
+
 data class ChatUiState(
     val officialGroup: ChatGroup? = null,
     val directChats: List<ChatGroup> = emptyList(),
@@ -40,9 +49,10 @@ data class ChatUiState(
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
     val selectedMediaUri: Uri? = null,
-    val selectedMediaType: String = "", // "image", "video", "audio"
+    val selectedMediaType: String = "", // "image", "video", "audio", "document"
     val selectedMediaBytes: ByteArray? = null,
     val selectedMediaDurationMs: Long = 0L,
+    val selectedMediaFileName: String = "",
     val isRecordingVoice: Boolean = false,
     val voiceRecordDurationMs: Long = 0L,
     val voiceRecordAmplitude: Int = 0,
@@ -52,7 +62,8 @@ data class ChatUiState(
     val groupEditDescription: String = "",
     val groupEditAvatarUri: Uri? = null,
     val groupEditAvatarBytes: ByteArray? = null,
-    val isUpdatingGroup: Boolean = false
+    val isUpdatingGroup: Boolean = false,
+    val sendingFiles: List<SendingFileStatus> = emptyList()
 ) {
     val selectedImageUri: Uri? get() = if (selectedMediaType == "image") selectedMediaUri else null
 }
@@ -183,35 +194,162 @@ class ChatViewModel(
         currentChatIdToOpen = chatId
         viewModelScope.launch {
             try {
-                // 1. Cargar base de datos local o remota inmediatamente
+                // 1. Cargar base de datos local
                 val chatsDb = repository.getChatsDatabase(forceRemote = false)
-                val active = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
+                var active = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
                     chatsDb.officialGroup
                 } else {
-                    chatsDb.directChats.firstOrNull { it.id == chatId }
+                    chatsDb.directChats.firstOrNull { it.id == chatId || it.members.contains(chatId) }
+                }
+
+                // 2. Si no se encontró en local, buscar en remoto o auto-crear si es un usuario
+                if (active == null && chatId != AppConfig.OFFICIAL_GROUP_ID) {
+                    val remoteDb = repository.getChatsDatabase(forceRemote = true)
+                    active = remoteDb.directChats.firstOrNull { it.id == chatId || it.members.contains(chatId) }
+
+                    val currentUser = _uiState.value.currentUser
+                    if (active == null && currentUser != null && chatId.isNotBlank()) {
+                        val otherUsername = if (chatId.startsWith("dm_")) {
+                            chatId.removePrefix("dm_").split("_").firstOrNull {
+                                !it.equals(currentUser.username.lowercase(), ignoreCase = true)
+                            } ?: chatId
+                        } else chatId
+                        try {
+                            active = repository.getOrCreateDirectChat(currentUser.username, otherUsername)
+                        } catch (_: Exception) {}
+                    }
                 }
 
                 _uiState.update {
                     it.copy(
                         officialGroup = chatsDb.officialGroup,
                         directChats = chatsDb.directChats,
-                        activeChat = active,
+                        activeChat = active ?: it.activeChat,
                         messageInputText = "",
                         replyingToMessage = null,
                         selectedMediaUri = null,
                         selectedMediaBytes = null,
-                        selectedMediaType = ""
+                        selectedMediaType = "",
+                        isLoading = false
                     )
                 }
                 resolveUsersAndAvatars()
 
-                // 2. Marcar mensajes como leídos
+                // 3. Marcar mensajes como leídos
                 val user = _uiState.value.currentUser
                 if (user != null) {
-                    repository.markMessagesAsRead(chatId, user.username)
+                    try {
+                        repository.markMessagesAsRead(chatId, user.username)
+                    } catch (_: Exception) {}
                 }
             } catch (e: Exception) {
-                _uiState.update { it.copy(errorMessage = e.message) }
+                _uiState.update { it.copy(isLoading = false, errorMessage = e.message) }
+            }
+        }
+    }
+
+    /**
+     * Envía múltiples archivos o documentos seleccionados del almacenamiento,
+     * mostrando el progreso individual de cada archivo.
+     */
+    fun sendMultipleFiles(context: Context, uris: List<Uri>) {
+        if (uris.isEmpty()) return
+        val user = _uiState.value.currentUser ?: return
+        val active = _uiState.value.activeChat ?: return
+
+        val initialStatuses = uris.map { uri ->
+            SendingFileStatus(
+                uri = uri,
+                name = MediaUtils.getFileName(context, uri),
+                sizeBytes = MediaUtils.getFileSize(context, uri),
+                progress = 0.05f
+            )
+        }
+
+        _uiState.update { it.copy(sendingFiles = it.sendingFiles + initialStatuses) }
+
+        viewModelScope.launch {
+            for (status in initialStatuses) {
+                try {
+                    // Actualizar progreso a leyendo / preparando
+                    _uiState.update { state ->
+                        state.copy(sendingFiles = state.sendingFiles.map {
+                            if (it.uri == status.uri) it.copy(progress = 0.25f) else it
+                        })
+                    }
+
+                    val mime = MediaUtils.getMimeType(context, status.uri)
+                    val rawBytes = MediaUtils.readBytes(context, status.uri)
+                    if (rawBytes == null || rawBytes.isEmpty()) {
+                        throw Exception("No se pudo leer el archivo")
+                    }
+
+                    // Si es imagen grande, comprimirla
+                    val finalBytes = if (mime.startsWith("image")) {
+                        MediaUtils.compressImage(context, status.uri) ?: rawBytes
+                    } else {
+                        rawBytes
+                    }
+
+                    if (finalBytes.size > AppConfig.MAX_FILE_BYTES) {
+                        throw Exception("El archivo ${status.name} supera el límite de 4 MB")
+                    }
+
+                    // Progreso a subiendo
+                    _uiState.update { state ->
+                        state.copy(sendingFiles = state.sendingFiles.map {
+                            if (it.uri == status.uri) it.copy(progress = 0.65f) else it
+                        })
+                    }
+
+                    val mediaType = when {
+                        mime.startsWith("image") -> "image"
+                        mime.startsWith("video") -> "video"
+                        mime.startsWith("audio") -> "audio"
+                        else -> "document"
+                    }
+
+                    repository.sendChatMessage(
+                        chatId = active.id,
+                        sender = user,
+                        text = "",
+                        mediaBytes = finalBytes,
+                        filename = status.name,
+                        mimeType = mime,
+                        mediaType = mediaType
+                    )
+
+                    // Progreso completado
+                    _uiState.update { state ->
+                        state.copy(sendingFiles = state.sendingFiles.map {
+                            if (it.uri == status.uri) it.copy(progress = 1.0f) else it
+                        })
+                    }
+                    delay(300)
+
+                    // Quitar de lista de envío
+                    _uiState.update { state ->
+                        state.copy(sendingFiles = state.sendingFiles.filterNot { it.uri == status.uri })
+                    }
+
+                    val updatedDb = repository.getChatsDatabase(forceRemote = false)
+                    val updatedActive = if (active.isOfficialGroup) updatedDb.officialGroup else updatedDb.directChats.firstOrNull { it.id == active.id }
+                    _uiState.update { it.copy(activeChat = updatedActive ?: it.activeChat) }
+
+                } catch (e: Exception) {
+                    _uiState.update { state ->
+                        state.copy(
+                            sendingFiles = state.sendingFiles.map {
+                                if (it.uri == status.uri) it.copy(error = e.message, progress = 0f) else it
+                            },
+                            errorMessage = "Error enviando ${status.name}: ${e.message}"
+                        )
+                    }
+                    delay(1500)
+                    _uiState.update { state ->
+                        state.copy(sendingFiles = state.sendingFiles.filterNot { it.uri == status.uri })
+                    }
+                }
             }
         }
     }

@@ -47,6 +47,7 @@ val LightOutline = Color(0xFFE2E8F0)
 object PostGradients {
     val PALETTES = listOf(
         "teal" to listOf(Color(0xFF0D9488), Color(0xFF06B6D4)),
+        "white" to listOf(Color(0xFFFFFFFF), Color(0xFFF8FAFC)),
         "sunset" to listOf(Color(0xFFEA580C), Color(0xFFEC4899)),
         "purple" to listOf(Color(0xFF7C3AED), Color(0xFF4F46E5)),
         "midnight" to listOf(Color(0xFF1E1B4B), Color(0xFF312E81)),
@@ -56,7 +57,13 @@ object PostGradients {
     )
 
     fun getGradient(name: String): List<Color> {
-        return PALETTES.firstOrNull { it.first == name }?.second
+        return PALETTES.firstOrNull { it.first.equals(name, ignoreCase = true) }?.second
             ?: listOf(Color(0xFF0D9488), Color(0xFF06B6D4))
+    }
+
+    fun isLight(name: String): Boolean = name.equals("white", ignoreCase = true)
+
+    fun getTextColor(name: String): Color {
+        return if (isLight(name)) Color(0xFF1E293B) else Color.White
     }
 }

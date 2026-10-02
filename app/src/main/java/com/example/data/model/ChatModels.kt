@@ -23,6 +23,7 @@ data class ChatMessage(
     val isImage: Boolean get() = mediaType.equals("image", ignoreCase = true)
     val isVideo: Boolean get() = mediaType.equals("video", ignoreCase = true)
     val isAudio: Boolean get() = mediaType.equals("audio", ignoreCase = true)
+    val isDocument: Boolean get() = mediaType.equals("document", ignoreCase = true) || (!isImage && !isVideo && !isAudio && mediaUrl.isNotEmpty())
 }
 
 data class ChatGroup(

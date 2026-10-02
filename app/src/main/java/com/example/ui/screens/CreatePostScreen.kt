@@ -218,14 +218,19 @@ fun CreatePostScreen(
                     ) {
                         items(PostGradients.PALETTES) { (paletteName, colors) ->
                             val isSelected = state.selectedGradient == paletteName
+                            val isWhite = paletteName.equals("white", ignoreCase = true)
                             Box(
                                 modifier = Modifier
                                     .size(48.dp)
                                     .clip(CircleShape)
                                     .background(Brush.linearGradient(colors))
                                     .border(
-                                        width = if (isSelected) 3.dp else 1.dp,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = 0.5f),
+                                        width = if (isSelected) 3.dp else 1.5.dp,
+                                        color = when {
+                                            isSelected -> MaterialTheme.colorScheme.primary
+                                            isWhite -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                                            else -> Color.White.copy(alpha = 0.4f)
+                                        },
                                         shape = CircleShape
                                     )
                                     .clickable { viewModel.selectGradient(paletteName) },
@@ -235,7 +240,7 @@ fun CreatePostScreen(
                                     Icon(
                                         imageVector = Icons.Default.Check,
                                         contentDescription = "Seleccionado",
-                                        tint = Color.White,
+                                        tint = if (isWhite) MaterialTheme.colorScheme.primary else Color.White,
                                         modifier = Modifier.size(22.dp)
                                     )
                                 }
@@ -247,12 +252,20 @@ fun CreatePostScreen(
 
                     // Vista previa del texto con el fondo
                     val gradientColors = PostGradients.getGradient(state.selectedGradient)
+                    val previewTextColor = PostGradients.getTextColor(state.selectedGradient)
+                    val isWhiteBg = PostGradients.isLight(state.selectedGradient)
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(220.dp)
                             .clip(RoundedCornerShape(24.dp))
                             .background(Brush.linearGradient(gradientColors))
+                            .then(
+                                if (isWhiteBg) {
+                                    Modifier.border(1.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), RoundedCornerShape(24.dp))
+                                } else Modifier
+                            )
                             .padding(20.dp),
                         contentAlignment = Alignment.Center
                     ) {
@@ -260,7 +273,7 @@ fun CreatePostScreen(
                             text = state.captionText.ifBlank { "Escribe aquí lo que estás pensando..." },
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = previewTextColor,
                             textAlign = TextAlign.Center,
                             lineHeight = 28.sp
                         )

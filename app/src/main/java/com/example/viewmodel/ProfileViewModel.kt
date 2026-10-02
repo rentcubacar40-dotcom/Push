@@ -60,12 +60,14 @@ class ProfileViewModel(
 
                 val usersDb = repository.getUsersDatabase(forceRemote = false)
                 val targetUser = usersDb.users.firstOrNull {
-                    it.username.equals(effectiveUsername, ignoreCase = true)
+                    it.username.equals(effectiveUsername, ignoreCase = true) ||
+                    it.username.removePrefix("@").equals(effectiveUsername.removePrefix("@"), ignoreCase = true)
                 }
 
                 val postsDb = repository.getPostsDatabase(forceRemote = false)
                 val userPosts = postsDb.posts.filter {
-                    it.authorUsername.equals(effectiveUsername, ignoreCase = true)
+                    it.authorUsername.equals(effectiveUsername, ignoreCase = true) ||
+                    it.authorUsername.removePrefix("@").equals(effectiveUsername.removePrefix("@"), ignoreCase = true)
                 }
 
                 val totalLikes = userPosts.sumOf { it.likes.size }
@@ -171,6 +173,19 @@ class ProfileViewModel(
                 }
             } catch (e: Exception) {
                 _uiState.update { it.copy(isUpdating = false, errorMessage = "Error al actualizar perfil: ${e.message}") }
+            }
+        }
+    }
+
+    fun openChatWithUser(onChatReady: (String) -> Unit) {
+        val current = _uiState.value.currentUser ?: return
+        val target = _uiState.value.user ?: return
+        viewModelScope.launch {
+            try {
+                val directChat = repository.getOrCreateDirectChat(current.username, target.username)
+                onChatReady(directChat.id)
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = "Error al abrir chat: ${e.message}") }
             }
         }
     }

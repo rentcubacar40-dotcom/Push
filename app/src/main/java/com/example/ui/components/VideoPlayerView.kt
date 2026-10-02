@@ -79,63 +79,80 @@ fun VideoPlayerView(
     var progress by remember { mutableFloatStateOf(0f) }
 
     val exoPlayer = remember(videoUrl) {
-        ExoPlayer.Builder(context).build().apply {
-            val mediaItem = MediaItem.fromUri(videoUrl)
-            setMediaItem(mediaItem)
-            repeatMode = Player.REPEAT_MODE_ALL
-            playWhenReady = autoPlay
-            volume = if (isMuted) 0f else 1f
-            prepare()
+        if (videoUrl.isBlank()) null
+        else {
+            try {
+                ExoPlayer.Builder(context).build().apply {
+                    val mediaItem = MediaItem.fromUri(videoUrl)
+                    setMediaItem(mediaItem)
+                    repeatMode = Player.REPEAT_MODE_ALL
+                    playWhenReady = autoPlay
+                    volume = if (isMuted) 0f else 1f
+                    prepare()
+                }
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 
     DisposableEffect(exoPlayer) {
-        val listener = object : Player.Listener {
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                when (playbackState) {
-                    Player.STATE_BUFFERING -> {
-                        isLoading = true
-                        hasError = false
-                    }
-                    Player.STATE_READY -> {
-                        isLoading = false
-                        hasError = false
-                        durationMs = exoPlayer.duration.coerceAtLeast(0L)
-                    }
-                    Player.STATE_ENDED -> {
-                        isLoading = false
-                    }
-                    Player.STATE_IDLE -> {
-                        isLoading = false
+        if (exoPlayer == null) {
+            isLoading = false
+            hasError = true
+            onDispose {}
+        } else {
+            val listener = object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    when (playbackState) {
+                        Player.STATE_BUFFERING -> {
+                            isLoading = true
+                            hasError = false
+                        }
+                        Player.STATE_READY -> {
+                            isLoading = false
+                            hasError = false
+                            durationMs = exoPlayer.duration.coerceAtLeast(0L)
+                        }
+                        Player.STATE_ENDED -> {
+                            isLoading = false
+                        }
+                        Player.STATE_IDLE -> {
+                            isLoading = false
+                        }
                     }
                 }
-            }
 
-            override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
-            }
+                override fun onIsPlayingChanged(playing: Boolean) {
+                    isPlaying = playing
+                }
 
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                isLoading = false
-                hasError = true
+                override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                    isLoading = false
+                    hasError = true
+                }
             }
-        }
-        exoPlayer.addListener(listener)
+            exoPlayer.addListener(listener)
 
-        onDispose {
-            exoPlayer.removeListener(listener)
-            exoPlayer.release()
+            onDispose {
+                try {
+                    exoPlayer.removeListener(listener)
+                    exoPlayer.release()
+                } catch (_: Exception) {}
+            }
         }
     }
 
     // Actualización periódica del progreso de reproducción
-    LaunchedEffect(isPlaying) {
-        while (isPlaying) {
-            currentPositionMs = exoPlayer.currentPosition
-            durationMs = exoPlayer.duration.coerceAtLeast(0L)
-            if (durationMs > 0) {
-                progress = (currentPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
-            }
+    LaunchedEffect(isPlaying, exoPlayer) {
+        while (isPlaying && exoPlayer != null) {
+            try {
+                currentPositionMs = exoPlayer.currentPosition
+                durationMs = exoPlayer.duration.coerceAtLeast(0L)
+                if (durationMs > 0) {
+                    progress = (currentPositionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+                }
+            } catch (_: Exception) {}
             delay(250)
         }
     }
@@ -211,8 +228,8 @@ fun VideoPlayerView(
                         onClick = {
                             hasError = false
                             isLoading = true
-                            exoPlayer.prepare()
-                            exoPlayer.play()
+                            exoPlayer?.prepare()
+                            exoPlayer?.play()
                         },
                         modifier = Modifier.size(28.dp)
                     ) {
@@ -254,10 +271,12 @@ fun VideoPlayerView(
                         .align(Alignment.Center)
                         .size(56.dp)
                         .clickable {
-                            if (exoPlayer.isPlaying) {
-                                exoPlayer.pause()
-                            } else {
-                                exoPlayer.play()
+                            exoPlayer?.let { player ->
+                                if (player.isPlaying) {
+                                    player.pause()
+                                } else {
+                                    player.play()
+                                }
                             }
                         }
                 ) {
@@ -281,7 +300,7 @@ fun VideoPlayerView(
                         .size(34.dp)
                         .clickable {
                             isMuted = !isMuted
-                            exoPlayer.volume = if (isMuted) 0f else 1f
+                            exoPlayer?.volume = if (isMuted) 0f else 1f
                         }
                 ) {
                     Box(contentAlignment = Alignment.Center) {

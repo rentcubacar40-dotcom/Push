@@ -157,7 +157,8 @@ fun MoodgramApp(repository: MoodgramRepository) {
             route = Screen.ChatDetail.route,
             arguments = listOf(navArgument("chatId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val chatId = backStackEntry.arguments?.getString("chatId") ?: ""
+            val rawChatId = backStackEntry.arguments?.getString("chatId") ?: ""
+            val chatId = try { android.net.Uri.decode(rawChatId) } catch (_: Exception) { rawChatId }
             val chatViewModel = remember(chatId) { ChatViewModel(repository) }
             ChatScreen(
                 viewModel = chatViewModel,
@@ -201,6 +202,9 @@ fun MoodgramApp(repository: MoodgramRepository) {
                 onNavigateBack = { navController.popBackStack() },
                 onNavigateToPostDetail = { postId ->
                     navController.navigate(Screen.PostDetail.createRoute(postId))
+                },
+                onNavigateToChat = { chatId ->
+                    navController.navigate(Screen.ChatDetail.createRoute(chatId))
                 }
             )
         }

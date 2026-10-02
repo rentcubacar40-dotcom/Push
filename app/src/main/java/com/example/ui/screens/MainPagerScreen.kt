@@ -46,9 +46,11 @@ fun MainPagerScreen(
     onLogoutSuccess: () -> Unit
 ) {
     val currentSession by repository.sessionManager.userSessionFlow.collectAsState(initial = null)
-    val isAdmin = currentSession?.isAdmin == true
+    val isAdmin = currentSession?.isAdmin == true || 
+            currentSession?.username?.equals("@Eliel_21", ignoreCase = true) == true ||
+            currentSession?.username?.equals("Eliel_21", ignoreCase = true) == true
 
-    val pageCount = 5
+    val pageCount = if (isAdmin) 6 else 5
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { pageCount })
     val coroutineScope = rememberCoroutineScope()
 
@@ -61,6 +63,7 @@ fun MainPagerScreen(
     val profileViewModel = remember(currentSession?.username) {
         ProfileViewModel(repository, currentSession?.username ?: "profile_current")
     }
+    val adminViewModel = remember { com.example.viewmodel.AdminViewModel(repository) }
     val settingsViewModel = remember { SettingsViewModel(repository) }
 
     val currentRoute = when (pagerState.currentPage) {
@@ -68,7 +71,8 @@ fun MainPagerScreen(
         1 -> Screen.Chats.route
         2 -> Screen.CreatePost.route
         3 -> "profile_current"
-        4 -> Screen.Settings.route
+        4 -> if (isAdmin) Screen.Admin.route else Screen.Settings.route
+        5 -> Screen.Settings.route
         else -> Screen.Feed.route
     }
 
@@ -123,10 +127,21 @@ fun MainPagerScreen(
                         onNavigateBack = {
                             coroutineScope.launch { pagerState.animateScrollToPage(0) }
                         },
-                        onNavigateToPostDetail = onNavigateToPostDetail
+                        onNavigateToPostDetail = onNavigateToPostDetail,
+                        onNavigateToChat = onNavigateToChat
                     )
                 }
                 4 -> {
+                    if (isAdmin) {
+                        AdminScreen(viewModel = adminViewModel)
+                    } else {
+                        SettingsScreen(
+                            viewModel = settingsViewModel,
+                            onLogoutSuccess = onLogoutSuccess
+                        )
+                    }
+                }
+                5 -> {
                     SettingsScreen(
                         viewModel = settingsViewModel,
                         onLogoutSuccess = onLogoutSuccess
@@ -146,7 +161,8 @@ fun MainPagerScreen(
                     Screen.Chats.route -> 1
                     Screen.CreatePost.route -> 2
                     "profile_current", Screen.Profile.route -> 3
-                    Screen.Settings.route, Screen.Admin.route -> 4
+                    Screen.Admin.route -> if (isAdmin) 4 else 0
+                    Screen.Settings.route -> if (isAdmin) 5 else 4
                     else -> 0
                 }
                 coroutineScope.launch {

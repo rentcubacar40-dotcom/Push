@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.PlayCircle
@@ -76,7 +77,8 @@ import com.example.viewmodel.ProfileViewModel
 fun ProfileScreen(
     viewModel: ProfileViewModel,
     onNavigateBack: () -> Unit,
-    onNavigateToPostDetail: (String) -> Unit
+    onNavigateToPostDetail: (String) -> Unit,
+    onNavigateToChat: (String) -> Unit = {}
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
@@ -281,6 +283,28 @@ fun ProfileScreen(
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text("Editar perfil", fontWeight = FontWeight.SemiBold)
                                     }
+                                } else {
+                                    Spacer(modifier = Modifier.height(18.dp))
+                                    Button(
+                                        onClick = {
+                                            viewModel.openChatWithUser { chatId ->
+                                                onNavigateToChat(chatId)
+                                            }
+                                        },
+                                        shape = CircleShape,
+                                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .testTag("send_message_profile_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Chat,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Enviar Mensaje", fontWeight = FontWeight.SemiBold)
+                                    }
                                 }
                             }
                         }
@@ -299,36 +323,67 @@ fun ProfileScreen(
                     } else {
                         items(state.userPosts, key = { it.id }) { post ->
                             val thumb = state.resolvedThumbnails[post.id] ?: post.mediaUrl
-                            Box(
-                                modifier = Modifier
-                                    .padding(1.5.dp)
-                                    .aspectRatio(1f)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .clickable { onNavigateToPostDetail(post.id) },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                AsyncImage(
-                                    model = thumb,
-                                    contentDescription = "Miniatura",
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
+                            val isTextPost = post.isTextOnly || post.mediaUrl.isBlank()
 
-                                if (post.isVideo) {
-                                    Box(
-                                        modifier = Modifier
-                                            .align(Alignment.TopEnd)
-                                            .padding(6.dp)
-                                            .size(24.dp)
-                                            .background(Color.Black.copy(alpha = 0.55f), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayCircle,
-                                            contentDescription = "Video",
-                                            tint = Color.White,
-                                            modifier = Modifier.size(16.dp)
-                                        )
+                            if (isTextPost) {
+                                val isLight = post.backgroundColor.equals("white", ignoreCase = true)
+                                val textColor = if (isLight) Color(0xFF1E293B) else Color.White
+                                val gradientColors = com.example.ui.theme.PostGradients.getGradient(post.backgroundColor)
+
+                                Box(
+                                    modifier = Modifier
+                                        .padding(1.5.dp)
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(androidx.compose.ui.graphics.Brush.linearGradient(gradientColors))
+                                        .then(if (isLight) Modifier.border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(6.dp)) else Modifier)
+                                        .clickable { onNavigateToPostDetail(post.id) }
+                                        .padding(8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = post.text,
+                                        color = textColor,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 4,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                    )
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .padding(1.5.dp)
+                                        .aspectRatio(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .clickable { onNavigateToPostDetail(post.id) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    AsyncImage(
+                                        model = thumb,
+                                        contentDescription = "Miniatura",
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+
+                                    if (post.isVideo) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(6.dp)
+                                                .size(24.dp)
+                                                .background(Color.Black.copy(alpha = 0.55f), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PlayCircle,
+                                                contentDescription = "Video",
+                                                tint = Color.White,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }

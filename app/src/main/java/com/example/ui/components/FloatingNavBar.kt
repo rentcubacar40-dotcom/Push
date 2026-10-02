@@ -1,6 +1,8 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
@@ -8,12 +10,16 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.outlined.Chat
@@ -31,11 +37,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -81,7 +89,7 @@ fun FloatingNavBar(
         modifier = modifier
             .fillMaxWidth()
             .navigationBarsPadding()
-            .padding(bottom = 14.dp, start = 20.dp, end = 20.dp)
+            .padding(bottom = 12.dp, start = 12.dp, end = 12.dp)
     ) {
         Box(
             modifier = Modifier.fillMaxWidth(),
@@ -89,14 +97,17 @@ fun FloatingNavBar(
         ) {
             Surface(
                 modifier = Modifier
-                    .shadow(elevation = 12.dp, shape = CircleShape)
-                    .clip(CircleShape),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+                    .fillMaxWidth()
+                    .shadow(elevation = 10.dp, shape = RoundedCornerShape(28.dp))
+                    .clip(RoundedCornerShape(28.dp)),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
                 tonalElevation = 6.dp
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     items.forEach { item ->
@@ -105,23 +116,23 @@ fun FloatingNavBar(
                             else -> currentRoute.startsWith(item.route)
                         }
 
-                        val activeBg = if (selected) {
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                        } else {
-                            androidx.compose.ui.graphics.Color.Transparent
-                        }
-
-                        val iconColor = if (selected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        }
+                        val activeBgColor by animateColorAsState(
+                            targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f) else Color.Transparent,
+                            animationSpec = tween(200),
+                            label = "navActiveBg"
+                        )
+                        val iconTint by animateColorAsState(
+                            targetValue = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            animationSpec = tween(200),
+                            label = "navIconTint"
+                        )
 
                         Box(
                             modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(activeBg)
+                                .weight(1f)
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(activeBgColor)
                                 .clickable(
                                     interactionSource = remember { MutableInteractionSource() },
                                     indication = null
@@ -131,12 +142,26 @@ fun FloatingNavBar(
                                 .testTag(item.testTag),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
-                                contentDescription = item.label,
-                                tint = iconColor,
-                                modifier = Modifier.size(24.dp)
-                            )
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
+                                    contentDescription = item.label,
+                                    tint = iconTint,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                if (selected) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .size(4.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primary)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

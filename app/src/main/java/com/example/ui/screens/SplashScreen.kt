@@ -6,6 +6,8 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -33,9 +36,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.local.SessionManager
 import com.example.data.repository.MoodgramRepository
-import com.example.ui.theme.MoodgramIndigo
-import com.example.ui.theme.MoodgramMagenta
-import com.example.ui.theme.MoodgramViolet
+import com.example.ui.theme.MoodgramCyan
+import com.example.ui.theme.MoodgramTeal
+import com.example.ui.theme.MoodgramTealDark
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.firstOrNull
 
@@ -47,17 +50,18 @@ fun SplashScreen(
     onNavigateToAuth: () -> Unit
 ) {
     val scale = remember { Animatable(0.7f) }
-    val glow = remember { Animatable(0.9f) }
+    val glow = remember { Animatable(0.95f) }
+    val isDark = isSystemInDarkTheme()
 
     LaunchedEffect(Unit) {
-        // Animación de entrada
+        // Animación suave de entrada
         scale.animateTo(
             targetValue = 1f,
             animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing)
         )
-        // Pulsación suave
+        // Pulsación suave de resplandor
         glow.animateTo(
-            targetValue = 1.15f,
+            targetValue = 1.1f,
             animationSpec = infiniteRepeatable(
                 animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
                 repeatMode = RepeatMode.Reverse
@@ -87,7 +91,7 @@ fun SplashScreen(
                 brush = Brush.verticalGradient(
                     listOf(
                         MaterialTheme.colorScheme.background,
-                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        if (isDark) MoodgramTealDark.copy(alpha = 0.45f) else Color(0xFFCCFBF1).copy(alpha = 0.5f)
                     )
                 )
             ),
@@ -97,17 +101,19 @@ fun SplashScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            // Icono de logo con gradiente
+            // Icono de logo con gradiente Teal y resplandor
             Box(
                 modifier = Modifier
-                    .size(110.dp)
+                    .size(112.dp)
                     .scale(scale.value * glow.value)
+                    .shadow(elevation = 20.dp, shape = CircleShape, spotColor = MoodgramTeal)
                     .background(
                         brush = Brush.linearGradient(
-                            listOf(MoodgramViolet, MoodgramMagenta, MoodgramIndigo)
+                            listOf(Color(0xFF14B8A6), MoodgramTeal, MoodgramTealDark)
                         ),
                         shape = CircleShape
-                    ),
+                    )
+                    .border(2.5.dp, Color(0xFF5EEAD4).copy(alpha = 0.7f), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -118,15 +124,17 @@ fun SplashScreen(
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(26.dp))
 
             Text(
                 text = "Moodgram",
-                fontSize = 34.sp,
+                fontSize = 36.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.primary,
+                color = MoodgramTeal,
                 letterSpacing = 1.sp
             )
+
+            Spacer(modifier = Modifier.height(6.dp))
 
             Text(
                 text = "Tu vida en fotos y videos",
@@ -138,9 +146,10 @@ fun SplashScreen(
             Spacer(modifier = Modifier.height(36.dp))
 
             CircularProgressIndicator(
-                modifier = Modifier.size(28.dp),
-                color = MoodgramViolet,
-                strokeWidth = 2.5.dp
+                modifier = Modifier.size(30.dp),
+                color = MoodgramTeal,
+                trackColor = MoodgramTeal.copy(alpha = 0.2f),
+                strokeWidth = 2.8.dp
             )
         }
     }

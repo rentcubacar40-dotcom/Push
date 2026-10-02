@@ -31,6 +31,24 @@ object MediaUtils {
     }
 
     /**
+     * Obtiene el nombre del archivo de un Uri.
+     */
+    fun getFileName(context: Context, uri: Uri): String {
+        return try {
+            var name = "documento_${System.currentTimeMillis()}"
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                if (nameIndex != -1 && cursor.moveToFirst()) {
+                    name = cursor.getString(nameIndex) ?: name
+                }
+            }
+            name
+        } catch (_: Exception) {
+            "documento_${System.currentTimeMillis()}"
+        }
+    }
+
+    /**
      * Lee los bytes completos de un Uri.
      */
     fun readBytes(context: Context, uri: Uri): ByteArray? {
@@ -167,6 +185,31 @@ object MediaUtils {
             weeks < 4 -> "hace $weeks sem"
             months < 12 -> "hace $months m"
             else -> "hace más de 1 año"
+        }
+    }
+
+    /**
+     * Intenta abrir o descargar/ver externamente un archivo o enlace
+     */
+    fun openMediaExternally(context: Context, urlOrUri: String) {
+        if (urlOrUri.isBlank()) return
+        try {
+            val uri = Uri.parse(urlOrUri)
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "*/*")
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(android.content.Intent.createChooser(intent, "Abrir archivo").apply {
+                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            })
+        } catch (_: Exception) {
+            try {
+                val browserIntent = android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(urlOrUri)).apply {
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(browserIntent)
+            } catch (_: Exception) {}
         }
     }
 }

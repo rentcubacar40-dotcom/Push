@@ -803,28 +803,27 @@ class MoodgramRepository(
         var mediaUrl = ""
         var actualMediaType = mediaType
         if (mediaBytes != null && mediaBytes.isNotEmpty()) {
-            val ext = when {
-                mimeType.contains("video") || filename.endsWith(".mp4") -> "mp4"
-                mimeType.contains("audio") || filename.endsWith(".m4a") || filename.endsWith(".aac") -> "m4a"
-                else -> "jpg"
-            }
-            if (actualMediaType.isEmpty()) {
-                actualMediaType = when (ext) {
-                    "mp4" -> "video"
-                    "m4a" -> "audio"
-                    else -> "image"
+            val ext = if (filename.contains(".")) filename.substringAfterLast(".").lowercase() else {
+                when {
+                    mimeType.contains("video") -> "mp4"
+                    mimeType.contains("audio") -> "m4a"
+                    mimeType.contains("pdf") -> "pdf"
+                    mimeType.contains("image") -> "jpg"
+                    else -> "bin"
                 }
             }
-            val uniqueName = "chat_${System.currentTimeMillis()}_${filename.ifEmpty { "media.$ext" }}"
+            if (actualMediaType.isEmpty()) {
+                actualMediaType = when {
+                    mimeType.contains("video") || ext == "mp4" -> "video"
+                    mimeType.contains("audio") || ext in listOf("m4a", "aac", "mp3", "wav") -> "audio"
+                    mimeType.contains("image") || ext in listOf("jpg", "jpeg", "png", "webp", "gif") -> "image"
+                    else -> "document"
+                }
+            }
+            val uniqueName = "chat_${System.currentTimeMillis()}_${filename.ifEmpty { "file.$ext" }}"
             val uploadRes = moodleApi.uploadToUserEvidence(
                 filename = uniqueName,
-                mimeType = mimeType.ifEmpty {
-                    when (ext) {
-                        "mp4" -> "video/mp4"
-                        "m4a" -> "audio/mp4"
-                        else -> "image/jpeg"
-                    }
-                },
+                mimeType = mimeType.ifEmpty { "application/octet-stream" },
                 bytes = mediaBytes,
                 evidenceTitle = "Moodgram Chat Media $uniqueName"
             )
@@ -857,6 +856,7 @@ class MoodgramRepository(
                     when (actualMediaType) {
                         "video" -> "🎥 Video"
                         "audio" -> "🎤 Nota de voz"
+                        "document" -> "📄 Documento: ${filename.ifEmpty { "Archivo" }}"
                         else -> "📷 Imagen"
                     }
                 }

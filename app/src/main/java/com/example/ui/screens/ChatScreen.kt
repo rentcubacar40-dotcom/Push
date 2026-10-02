@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,13 +51,17 @@ import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayCircleOutline
@@ -71,6 +76,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -100,6 +106,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -148,6 +155,15 @@ fun ChatScreen(
         }
     }
 
+    // Selector de múltiples documentos y archivos del almacenamiento
+    val documentPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            viewModel.sendMultipleFiles(context, uris)
+        }
+    }
+
     // Permiso de Grabación de Audio
     val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
@@ -170,10 +186,12 @@ fun ChatScreen(
     val activeChat = state.activeChat
     val messages = activeChat?.messages ?: emptyList()
 
-    // Auto scroll al último mensaje
+    // Auto scroll al último mensaje de forma segura
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+            try {
+                listState.scrollToItem(messages.size - 1)
+            } catch (_: Exception) {}
         }
     }
 
@@ -339,7 +357,7 @@ fun ChatScreen(
                     }
                 }
 
-                items(messages, key = { it.id }) { message ->
+                itemsIndexed(messages, key = { index, message -> if (message.id.isNotBlank()) "${message.id}_$index" else "msg_$index" }) { _, message ->
                     val isMe = message.senderUsername.equals(state.currentUser?.username, ignoreCase = true)
                     val senderAvatar = state.resolvedAvatarMap[message.senderUsername] ?: message.senderAvatarRef
                     val senderIsOnline = state.userOnlineMap[message.senderUsername] == true
@@ -452,6 +470,69 @@ fun ChatScreen(
                 }
             }
 
+            // Progreso individual de subida / envío de archivos y documentos
+            AnimatedVisibility(visible = state.sendingFiles.isNotEmpty()) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 3.dp
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.CloudUpload,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Enviando archivos (${state.sendingFiles.size})...",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        state.sendingFiles.forEach { file ->
+                            Column(modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = file.name,
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f).padding(end = 8.dp)
+                                    )
+                                    Text(
+                                        text = "${(file.progress * 100).toInt()}% • ${MediaUtils.formatFileSize(file.sizeBytes)}",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(3.dp))
+                                LinearProgressIndicator(
+                                    progress = { file.progress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp)),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // Barra inferior para escribir mensajes / Grabar audio ajustada con IME padding
             Surface(
                 modifier = Modifier
@@ -501,7 +582,7 @@ fun ChatScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         IconButton(
@@ -514,7 +595,19 @@ fun ChatScreen(
                             Icon(
                                 imageVector = Icons.Default.AddPhotoAlternate,
                                 contentDescription = "Adjuntar Foto o Video",
-                                tint = MoodgramViolet
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                documentPickerLauncher.launch(arrayOf("*/*"))
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.AttachFile,
+                                contentDescription = "Adjuntar Documento o Archivo",
+                                tint = MaterialTheme.colorScheme.primary
                             )
                         }
 
@@ -1135,6 +1228,62 @@ private fun SwipeableMessageBubble(
                                 }
                                 if (message.text.isNotBlank()) {
                                     Spacer(modifier = Modifier.height(6.dp))
+                                }
+                            }
+                            (message.isDocument || message.mediaType.equals("document", ignoreCase = true)) && message.mediaUrl.isNotBlank() -> {
+                                val ctx = LocalContext.current
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (isMe) Color.White.copy(alpha = 0.22f) else MaterialTheme.colorScheme.surface,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 6.dp)
+                                        .clickable {
+                                            MediaUtils.openMediaExternally(ctx, message.mediaUrl)
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(10.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(42.dp)
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(if (isMe) Color.White else MaterialTheme.colorScheme.primary),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.InsertDriveFile,
+                                                contentDescription = "Documento",
+                                                tint = if (isMe) MaterialTheme.colorScheme.primary else Color.White,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = message.text.ifBlank { "Archivo adjunto" },
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                color = if (isMe) Color.White else MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Text(
+                                                text = "Documento • Toca para abrir",
+                                                fontSize = 11.sp,
+                                                color = if (isMe) Color.White.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Icon(
+                                            imageVector = Icons.Default.Download,
+                                            contentDescription = "Descargar",
+                                            tint = if (isMe) Color.White else MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                             message.mediaUrl.isNotBlank() -> {
