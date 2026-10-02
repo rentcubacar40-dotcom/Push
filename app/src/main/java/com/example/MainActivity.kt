@@ -59,19 +59,23 @@ class MainActivity : ComponentActivity() {
 
         val repository = MoodgramRepository(applicationContext)
 
-        // Configurar Coil globalmente para utilizar el cliente HTTP configurado para Moodle
+        // Inicializar canal de notificaciones locales
+        com.example.util.NotificationHelper.initNotificationChannel(applicationContext)
+
+        // Configurar Coil globalmente con caché en memoria y disco persistente sin parpadeos
         val imageLoader = ImageLoader.Builder(applicationContext)
             .okHttpClient(repository.moodleApi.client)
             .crossfade(true)
+            .respectCacheHeaders(false)
             .memoryCache {
                 MemoryCache.Builder(applicationContext)
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(0.35)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(applicationContext.cacheDir.resolve("moodle_images"))
-                    .maxSizeBytes(50L * 1024 * 1024)
+                    .directory(applicationContext.cacheDir.resolve("moodle_images_v2"))
+                    .maxSizeBytes(150L * 1024 * 1024)
                     .build()
             }
             .build()

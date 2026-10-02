@@ -12,13 +12,13 @@ class LocalCache(private val context: Context) {
     private val gson = Gson()
 
     private val usersFile: File
-        get() = File(context.filesDir, "cached_usuarios.json")
+        get() = File(context.filesDir, "cached_v2_usuarios.json")
 
     private val postsFile: File
-        get() = File(context.filesDir, "cached_publicaciones.json")
+        get() = File(context.filesDir, "cached_v2_publicaciones.json")
 
     private val chatsFile: File
-        get() = File(context.filesDir, "cached_chats.json")
+        get() = File(context.filesDir, "cached_v2_chats.json")
 
     suspend fun saveUsers(database: UsersDatabase) = withContext(Dispatchers.IO) {
         try {

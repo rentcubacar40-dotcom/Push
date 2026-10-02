@@ -15,13 +15,13 @@ object AppConfig {
     // Parámetros de almacenamiento en la nube (Evidencias de aprendizaje / userevidence)
     const val DEFAULT_CONTEXT_ID = 44640L
     const val DEFAULT_USER_ID = 2886L
-    const val USERS_FILE_PREFIX = "moodgram_usuarios"
-    const val POSTS_FILE_PREFIX = "moodgram_publicaciones"
-    const val CHATS_FILE_PREFIX = "moodgram_chats"
+    const val USERS_FILE_PREFIX = "moodgram_v2_usuarios"
+    const val POSTS_FILE_PREFIX = "moodgram_v2_publicaciones"
+    const val CHATS_FILE_PREFIX = "moodgram_v2_chats"
     const val OFFICIAL_GROUP_ID = "official_group"
-    const val USERS_DEFAULT_FILE = "moodgram_usuarios.json"
-    const val POSTS_DEFAULT_FILE = "moodgram_publicaciones.json"
-    const val CHATS_DEFAULT_FILE = "moodgram_chats.json"
+    const val USERS_DEFAULT_FILE = "moodgram_v2_usuarios.json"
+    const val POSTS_DEFAULT_FILE = "moodgram_v2_publicaciones.json"
+    const val CHATS_DEFAULT_FILE = "moodgram_v2_chats.json"
 
     // Parámetros de servicio de la nube
     const val MOODLE_SERVICE = "moodle_mobile_app"

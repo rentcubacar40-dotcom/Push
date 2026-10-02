@@ -65,7 +65,7 @@ fun VideoPlayerView(
     modifier: Modifier = Modifier,
     autoPlay: Boolean = false,
     showControls: Boolean = true,
-    aspectRatio: Float = 1.0f,
+    aspectRatio: Float = 0f,
     initiallyMuted: Boolean = false
 ) {
     val context = LocalContext.current
@@ -168,7 +168,7 @@ fun VideoPlayerView(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .aspectRatio(aspectRatio)
+            .then(if (aspectRatio > 0f) Modifier.aspectRatio(aspectRatio) else Modifier)
             .clip(RoundedCornerShape(16.dp))
             .background(Color.Black)
             .clickable {
@@ -290,29 +290,6 @@ fun VideoPlayerView(
                     }
                 }
 
-                // Botón de silenciar / audio en la esquina superior derecha
-                Surface(
-                    shape = CircleShape,
-                    color = Color.Black.copy(alpha = 0.6f),
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(10.dp)
-                        .size(34.dp)
-                        .clickable {
-                            isMuted = !isMuted
-                            exoPlayer?.volume = if (isMuted) 0f else 1f
-                        }
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (isMuted) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
-                            contentDescription = if (isMuted) "Activar sonido" else "Silenciar",
-                            tint = Color.White,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-                }
-
                 // Barra inferior de progreso y duración
                 if (showControls) {
                     Row(
@@ -360,6 +337,30 @@ fun VideoPlayerView(
                         )
                     }
                 }
+            }
+        }
+
+        // Botón de silenciar / audio SIEMPRE VISIBLE en la esquina superior derecha
+        Surface(
+            shape = CircleShape,
+            color = Color.Black.copy(alpha = 0.75f),
+            shadowElevation = 4.dp,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(10.dp)
+                .size(38.dp)
+                .clickable {
+                    isMuted = !isMuted
+                    exoPlayer?.volume = if (isMuted) 0f else 1f
+                }
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (isMuted) Icons.Default.VolumeMute else Icons.Default.VolumeUp,
+                    contentDescription = if (isMuted) "Activar sonido" else "Silenciar",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
             }
         }
     }

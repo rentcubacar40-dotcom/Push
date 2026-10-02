@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -190,23 +191,7 @@ fun PostDetailScreen(
                 ) {
                     // Contenido Multimedia completo
                     item {
-                        val token = "ddd9b89ebd8115d4a9c1eaae298afde9"
-                        val rawMedia = state.resolvedMediaUrl.ifEmpty { post.mediaUrl }
-                        val sanitizedMedia = remember(rawMedia) {
-                            var url = rawMedia.replace("\\u003d", "=").trim()
-                            if (url.contains("/pluginfile.php/1/")) {
-                                url = url.replace("/pluginfile.php/1/", "/pluginfile.php/${AppConfig.DEFAULT_CONTEXT_ID}/")
-                            }
-                            if (url.contains("/pluginfile.php/") && !url.contains("/webservice/pluginfile.php/")) {
-                                url = url.replace("/pluginfile.php/", "/webservice/pluginfile.php/")
-                            }
-                            if (url.startsWith("http") && !url.contains("token=")) {
-                                val sep = if (url.contains("?")) "&" else "?"
-                                "$url${sep}token=$token"
-                            } else {
-                                url
-                            }
-                        }
+                        val finalMedia = state.resolvedMediaUrl.ifEmpty { post.mediaUrl }
 
                         if (post.isTextOnly || post.mediaUrl.isBlank()) {
                             val gradientColors = remember(post.backgroundColor) {
@@ -241,26 +226,30 @@ fun PostDetailScreen(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .aspectRatio(1.15f)
+                                    .heightIn(min = 240.dp, max = 500.dp)
                                     .background(Color.Black),
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (post.isVideo) {
                                     VideoPlayerView(
-                                        videoUrl = sanitizedMedia,
-                                        modifier = Modifier.fillMaxSize(),
+                                        videoUrl = finalMedia,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(300.dp),
                                         autoPlay = true,
                                         initiallyMuted = false
                                     )
                                 } else {
                                     AsyncImage(
                                         model = ImageRequest.Builder(LocalContext.current)
-                                            .data(sanitizedMedia)
+                                            .data(finalMedia)
                                             .crossfade(true)
                                             .build(),
                                         contentDescription = "Foto completa",
                                         contentScale = ContentScale.Fit,
-                                        modifier = Modifier.fillMaxSize()
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 240.dp, max = 500.dp)
                                     )
                                 }
                             }

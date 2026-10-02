@@ -749,6 +749,44 @@ class ChatViewModel(
         removeSelectedMedia()
     }
 
+    fun clearChatHistory(chatId: String) {
+        viewModelScope.launch {
+            try {
+                repository.clearChatHistory(chatId)
+                val updatedDb = repository.getChatsDatabase(forceRemote = false)
+                val updatedActive = if (chatId == AppConfig.OFFICIAL_GROUP_ID) updatedDb.officialGroup else updatedDb.directChats.firstOrNull { it.id == chatId }
+                _uiState.update {
+                    it.copy(
+                        officialGroup = updatedDb.officialGroup,
+                        directChats = updatedDb.directChats,
+                        activeChat = updatedActive ?: it.activeChat
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = "Error al vaciar chat: ${e.message}") }
+            }
+        }
+    }
+
+    fun deleteDirectChat(chatId: String, onDeleted: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                repository.deleteDirectChat(chatId)
+                val updatedDb = repository.getChatsDatabase(forceRemote = false)
+                _uiState.update {
+                    it.copy(
+                        officialGroup = updatedDb.officialGroup,
+                        directChats = updatedDb.directChats,
+                        activeChat = if (it.activeChat?.id == chatId) null else it.activeChat
+                    )
+                }
+                onDeleted()
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = "Error al eliminar chat: ${e.message}") }
+            }
+        }
+    }
+
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
     }

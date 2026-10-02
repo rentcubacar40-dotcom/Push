@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -271,8 +272,9 @@ fun PostCard(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .aspectRatio(1.22f)
+                            .heightIn(min = 220.dp, max = 450.dp)
                             .clip(RoundedCornerShape(20.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
                             .combinedClickable(
                                 onDoubleClick = {
                                     if (!isLiked) {
@@ -288,7 +290,8 @@ fun PostCard(
                             VideoPlayerView(
                                 videoUrl = finalMediaUrl,
                                 modifier = Modifier
-                                    .fillMaxSize()
+                                    .fillMaxWidth()
+                                    .height(280.dp)
                                     .clip(RoundedCornerShape(20.dp))
                             )
                         } else {
@@ -300,7 +303,8 @@ fun PostCard(
                                 contentDescription = "Imagen de la publicación",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
-                                    .fillMaxSize()
+                                    .fillMaxWidth()
+                                    .heightIn(min = 220.dp, max = 450.dp)
                                     .clip(RoundedCornerShape(20.dp)),
                                 loading = {
                                     Box(

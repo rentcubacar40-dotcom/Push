@@ -26,15 +26,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -82,6 +88,8 @@ fun ChatListScreen(
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     var userSearchQuery by remember { mutableStateOf("") }
+    var targetChatToClear by remember { mutableStateOf<String?>(null) }
+    var targetChatToDelete by remember { mutableStateOf<String?>(null) }
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
@@ -380,6 +388,42 @@ fun ChatListScreen(
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
+
+                                    var showChatRowMenu by remember { mutableStateOf(false) }
+                                    Box {
+                                        IconButton(
+                                            onClick = { showChatRowMenu = true },
+                                            modifier = Modifier.size(32.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.MoreVert,
+                                                contentDescription = "Opciones",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                        }
+                                        DropdownMenu(
+                                            expanded = showChatRowMenu,
+                                            onDismissRequest = { showChatRowMenu = false }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("Vaciar mensajes", color = MaterialTheme.colorScheme.error) },
+                                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                                onClick = {
+                                                    showChatRowMenu = false
+                                                    targetChatToClear = chat.id
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Eliminar conversación", color = MaterialTheme.colorScheme.error) },
+                                                leadingIcon = { Icon(Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                                onClick = {
+                                                    showChatRowMenu = false
+                                                    targetChatToDelete = chat.id
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -575,6 +619,56 @@ fun ChatListScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = viewModel::closeManageGroupDialog) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
+
+        // Diálogo para Vaciar Chat
+        targetChatToClear?.let { chatId ->
+            AlertDialog(
+                onDismissRequest = { targetChatToClear = null },
+                title = { Text("Vaciar mensajes del chat") },
+                text = { Text("¿Estás seguro de que deseas vaciar todos los mensajes de esta conversación? Esta acción no se puede deshacer.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.clearChatHistory(chatId)
+                            targetChatToClear = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Vaciar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { targetChatToClear = null }) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
+
+        // Diálogo para Eliminar Chat
+        targetChatToDelete?.let { chatId ->
+            AlertDialog(
+                onDismissRequest = { targetChatToDelete = null },
+                title = { Text("Eliminar conversación") },
+                text = { Text("¿Estás seguro de que deseas eliminar este chat? Se borrará completamente de tu lista.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            viewModel.deleteDirectChat(chatId)
+                            targetChatToDelete = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    ) {
+                        Text("Eliminar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { targetChatToDelete = null }) {
                         Text("Cancelar")
                     }
                 }

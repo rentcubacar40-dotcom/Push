@@ -72,6 +72,8 @@ import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -140,17 +142,25 @@ fun ChatScreen(
     var selectedMessageForOptions by remember { mutableStateOf<ChatMessage?>(null) }
     var selectedMessageForReadInfo by remember { mutableStateOf<ChatMessage?>(null) }
     var previewImageFullscreen by remember { mutableStateOf<String?>(null) }
+    var showChatMenu by remember { mutableStateOf(false) }
+    var showClearChatConfirmDialog by remember { mutableStateOf(false) }
+    var showDeleteChatConfirmDialog by remember { mutableStateOf(false) }
 
-    // Selector multimedia (Fotos y Videos)
-    val mediaPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.PickVisualMedia()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            val mimeType = context.contentResolver.getType(uri) ?: ""
-            if (mimeType.startsWith("video")) {
-                viewModel.onVideoSelected(context, uri)
+    // Selector multimedia (Múltiples Fotos y Videos)
+    val multipleMediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(maxItems = 10)
+    ) { uris: List<Uri> ->
+        if (uris.isNotEmpty()) {
+            if (uris.size == 1) {
+                val uri = uris.first()
+                val mimeType = context.contentResolver.getType(uri) ?: ""
+                if (mimeType.startsWith("video")) {
+                    viewModel.onVideoSelected(context, uri)
+                } else {
+                    viewModel.onImageSelected(context, uri)
+                }
             } else {
-                viewModel.onImageSelected(context, uri)
+                viewModel.sendMultipleFiles(context, uris)
             }
         }
     }
@@ -313,13 +323,46 @@ fun ChatScreen(
                         )
                     }
 
-                    if (isOfficialGroup && state.currentUser?.isAdmin == true) {
-                        IconButton(onClick = viewModel::openManageGroupDialog) {
+                    Box {
+                        IconButton(onClick = { showChatMenu = true }) {
                             Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Configurar Grupo",
-                                tint = MoodgramMagenta
+                                imageVector = Icons.Default.MoreVert,
+                                contentDescription = "Más opciones",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
+                        }
+                        DropdownMenu(
+                            expanded = showChatMenu,
+                            onDismissRequest = { showChatMenu = false }
+                        ) {
+                            if (isOfficialGroup && state.currentUser?.isAdmin == true) {
+                                DropdownMenuItem(
+                                    text = { Text("Configurar Grupo Oficial") },
+                                    leadingIcon = { Icon(Icons.Default.Settings, contentDescription = null, tint = MoodgramMagenta) },
+                                    onClick = {
+                                        showChatMenu = false
+                                        viewModel.openManageGroupDialog()
+                                    }
+                                )
+                            }
+                            DropdownMenuItem(
+                                text = { Text("Vaciar mensajes", color = MaterialTheme.colorScheme.error) },
+                                leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    showChatMenu = false
+                                    showClearChatConfirmDialog = true
+                                }
+                            )
+                            if (!isOfficialGroup) {
+                                DropdownMenuItem(
+                                    text = { Text("Eliminar conversación", color = MaterialTheme.colorScheme.error) },
+                                    leadingIcon = { Icon(Icons.Default.Close, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                                    onClick = {
+                                        showChatMenu = false
+                                        showDeleteChatConfirmDialog = true
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -587,7 +630,7 @@ fun ChatScreen(
                     ) {
                         IconButton(
                             onClick = {
-                                mediaPickerLauncher.launch(
+                                multipleMediaPickerLauncher.launch(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
                                 )
                             }
@@ -764,6 +807,7 @@ fun ChatScreen(
                     }
 
                     // Opción: Información del mensaje (Visto por)
+                    val otherReadersForMsg = msg.readBy.filterNot { it.equals(msg.senderUsername, ignoreCase = true) }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -778,7 +822,7 @@ fun ChatScreen(
                     ) {
                         Icon(Icons.Default.Info, contentDescription = "Info del mensaje", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(modifier = Modifier.width(14.dp))
-                        Text("Visto por (${msg.readBy.size})", fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                        Text("Visto por (${otherReadersForMsg.size})", fontSize = 15.sp, fontWeight = FontWeight.Medium)
                     }
 
                     if (canManageMsg) {
@@ -828,6 +872,7 @@ fun ChatScreen(
         // Hoja modal de "Visto por" (Quién vio el mensaje)
         if (selectedMessageForReadInfo != null) {
             val msg = selectedMessageForReadInfo!!
+            val otherReaders = msg.readBy.filterNot { it.equals(msg.senderUsername, ignoreCase = true) }
             ModalBottomSheet(
                 onDismissRequest = { selectedMessageForReadInfo = null },
                 sheetState = rememberModalBottomSheetState()
@@ -838,7 +883,7 @@ fun ChatScreen(
                         .padding(horizontal = 20.dp, vertical = 12.dp)
                 ) {
                     Text(
-                        text = "Visto por (${msg.readBy.size})",
+                        text = "Visto por (${otherReaders.size})",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -847,16 +892,16 @@ fun ChatScreen(
                     HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f))
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    if (msg.readBy.isEmpty()) {
+                    if (otherReaders.isEmpty()) {
                         Text(
-                            text = "Aún nadie ha leído este mensaje.",
+                            text = "Aún nadie más ha leído este mensaje.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontSize = 13.sp,
                             modifier = Modifier.padding(vertical = 16.dp)
                         )
                     } else {
                         LazyColumn(modifier = Modifier.height(260.dp)) {
-                            items(msg.readBy) { readUsername ->
+                            items(otherReaders) { readUsername ->
                                 val user = state.allUsers.firstOrNull { it.username.equals(readUsername, ignoreCase = true) }
                                 val avatar = state.resolvedAvatarMap[readUsername] ?: user?.avatarRef ?: ""
                                 Row(
@@ -892,6 +937,62 @@ fun ChatScreen(
                     Spacer(modifier = Modifier.height(20.dp))
                 }
             }
+        }
+
+        // Diálogo para Vaciar Chat
+        if (showClearChatConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showClearChatConfirmDialog = false },
+                title = { Text("Vaciar mensajes del chat") },
+                text = { Text("¿Estás seguro de que deseas vaciar todos los mensajes de esta conversación? Esta acción no se puede deshacer.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showClearChatConfirmDialog = false
+                            viewModel.clearChatHistory(chatId)
+                        },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("Vaciar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showClearChatConfirmDialog = false }) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
+
+        // Diálogo para Eliminar Conversación Directa
+        if (showDeleteChatConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showDeleteChatConfirmDialog = false },
+                title = { Text("Eliminar conversación") },
+                text = { Text("¿Estás seguro de que deseas eliminar este chat? Se borrará completamente de tu lista de mensajes.") },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showDeleteChatConfirmDialog = false
+                            viewModel.deleteDirectChat(chatId) {
+                                onNavigateBack()
+                            }
+                        },
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("Eliminar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteChatConfirmDialog = false }) {
+                        Text("Cancelar")
+                    }
+                }
+            )
         }
 
         // Diálogo para Editar Mensaje

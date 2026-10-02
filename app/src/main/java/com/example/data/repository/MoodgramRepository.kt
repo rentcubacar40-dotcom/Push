@@ -846,7 +846,7 @@ class MoodgramRepository(
             replyToSenderName = replyToSenderName,
             replyToText = replyToText,
             status = "SENT",
-            readBy = listOf(sender.username)
+            readBy = emptyList()
         )
 
         chatsMutex.withLock {
@@ -893,6 +893,7 @@ class MoodgramRepository(
 
     /**
      * Marca todos los mensajes recibidos en un chat como leídos por el usuario actual.
+     * Solo marca mensajes enviados por otros miembros.
      */
     suspend fun markMessagesAsRead(chatId: String, currentUsername: String): Unit = withContext(Dispatchers.IO) {
         chatsMutex.withLock {
@@ -901,7 +902,7 @@ class MoodgramRepository(
 
             fun updateReadStatus(messages: List<ChatMessage>): List<ChatMessage> {
                 return messages.map { msg ->
-                    if (!msg.readBy.contains(currentUsername)) {
+                    if (!msg.senderUsername.equals(currentUsername, ignoreCase = true) && !msg.readBy.contains(currentUsername)) {
                         modified = true
                         msg.copy(readBy = msg.readBy + currentUsername, status = "READ")
                     } else {
@@ -932,6 +933,54 @@ class MoodgramRepository(
                     saveChatsInternal(newDb)
                 }
             }
+        }
+    }
+
+    /**
+     * Vacía el historial de mensajes de un chat (Grupo Oficial o Directo).
+     */
+    suspend fun clearChatHistory(chatId: String): Unit = withContext(Dispatchers.IO) {
+        chatsMutex.withLock {
+            val db = getChatsInternal(forceRemote = false)
+            val newDb = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
+                val group = db.officialGroup
+                db.copy(
+                    officialGroup = group.copy(
+                        messages = emptyList(),
+                        lastMessage = null,
+                        lastMessageSender = null,
+                        lastMessageTime = null
+                    ),
+                    lastUpdated = System.currentTimeMillis()
+                )
+            } else {
+                val updatedDirects = db.directChats.map { direct ->
+                    if (direct.id == chatId) {
+                        direct.copy(
+                            messages = emptyList(),
+                            lastMessage = null,
+                            lastMessageSender = null,
+                            lastMessageTime = null
+                        )
+                    } else direct
+                }
+                db.copy(directChats = updatedDirects, lastUpdated = System.currentTimeMillis())
+            }
+            saveChatsInternal(newDb)
+        }
+    }
+
+    /**
+     * Elimina un chat directo completamente de la base de datos.
+     * El Grupo Oficial no se puede eliminar.
+     */
+    suspend fun deleteDirectChat(chatId: String): Unit = withContext(Dispatchers.IO) {
+        if (chatId == AppConfig.OFFICIAL_GROUP_ID) return@withContext
+        chatsMutex.withLock {
+            val db = getChatsInternal(forceRemote = false)
+            val updatedDirects = db.directChats.filterNot { it.id == chatId }
+            val newDb = db.copy(directChats = updatedDirects, lastUpdated = System.currentTimeMillis())
+            saveChatsInternal(newDb)
         }
     }
 
