@@ -22,7 +22,7 @@ data class AdminUiState(
     val selectedTab: Int = 0, // 0: Usuarios, 1: Publicaciones, 2: Sistema
     val isLoading: Boolean = true,
     val isActionInProgress: Boolean = false,
-    val moodleStatus: String = "Conectado a UCF Moodle",
+    val serverStatus: String = "Conectado al servidor en la nube",
     val errorMessage: String? = null,
     val successMessage: String? = null
 )

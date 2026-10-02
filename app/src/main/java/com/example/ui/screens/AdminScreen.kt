@@ -177,9 +177,9 @@ fun AdminScreen(
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
                                 AdminStatCard(
-                                    title = "Espacio Moodle",
+                                    title = "Almacenamiento",
                                     value = MediaUtils.formatFileSize(state.totalStorageBytes),
-                                    subtitle = "Evidencias UCF",
+                                    subtitle = "Archivos en la Nube",
                                     icon = Icons.Default.Storage,
                                     tint = MoodgramOrange,
                                     modifier = Modifier.weight(1f)
@@ -187,7 +187,7 @@ fun AdminScreen(
                                 AdminStatCard(
                                     title = "Estado Servidor",
                                     value = "En línea",
-                                    subtitle = "cursos.ucf.edu.cu",
+                                    subtitle = "Moodgram Cloud",
                                     icon = Icons.Default.CloudDone,
                                     tint = MoodgramTeal,
                                     modifier = Modifier.weight(1f)
@@ -207,7 +207,7 @@ fun AdminScreen(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                             indicator = {}
                         ) {
-                            listOf("Usuarios", "Publicaciones", "Moodle UCF").forEachIndexed { index, title ->
+                            listOf("Usuarios", "Publicaciones", "Servidor").forEachIndexed { index, title ->
                                 val isSelected = state.selectedTab == index
                                 Tab(
                                     selected = isSelected,
@@ -394,7 +394,7 @@ fun AdminScreen(
                         }
 
                         2 -> {
-                            // Pestaña Moodle UCF
+                            // Pestaña Servidor y Nube
                             item {
                                 Card(
                                     modifier = Modifier
@@ -405,17 +405,15 @@ fun AdminScreen(
                                 ) {
                                     Column(modifier = Modifier.padding(18.dp)) {
                                         Text(
-                                            text = "Infraestructura Moodle UCF",
+                                            text = "Infraestructura Moodgram Cloud",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 16.sp
                                         )
                                         Spacer(modifier = Modifier.height(10.dp))
-                                        Text("• Servidor: ${AppConfig.MOODLE_URL}", fontSize = 13.sp)
-                                        Text("• Usuario Moodle: ${AppConfig.MOODLE_USER}", fontSize = 13.sp)
-                                        Text("• Servicio: ${AppConfig.MOODLE_SERVICE}", fontSize = 13.sp)
-                                        Text("• Área de guardado: Evidencias de Usuario (Private Files)", fontSize = 13.sp)
+                                        Text("• Almacenamiento: Moodgram Secure Cloud Storage", fontSize = 13.sp)
                                         Text("• Límite por archivo: ${AppConfig.MAX_FILE_MB} MB", fontSize = 13.sp)
-                                        Text("• Administrador Moodgram: ${AppConfig.ADMIN_USERNAME}", fontSize = 13.sp)
+                                        Text("• Administrador Principal: ${AppConfig.ADMIN_USERNAME}", fontSize = 13.sp)
+                                        Text("• Estado de Conexión: Activo y Sincronizado en tiempo real", fontSize = 13.sp)
 
                                         Spacer(modifier = Modifier.height(16.dp))
                                         Button(
@@ -423,7 +421,7 @@ fun AdminScreen(
                                             shape = CircleShape,
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
-                                            Text("Sincronizar todo con Moodle")
+                                            Text("Sincronizar todo con el servidor")
                                         }
                                     }
                                 }

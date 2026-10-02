@@ -5,18 +5,23 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.model.Post
 import com.example.data.model.UserSession
 import com.example.data.repository.MoodgramRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class PostDetailUiState(
     val post: Post? = null,
     val resolvedMediaUrl: String = "",
     val resolvedAvatarUrls: Map<String, String> = emptyMap(),
+    val userOnlineStatus: Map<String, Boolean> = emptyMap(),
     val newCommentText: String = "",
+    val editingCommentId: String? = null,
+    val editingCommentText: String = "",
     val isSubmittingComment: Boolean = false,
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
@@ -35,12 +40,30 @@ class PostDetailViewModel(
     init {
         observeSession()
         loadPost()
+        startRealtimePolling()
     }
 
     private fun observeSession() {
         viewModelScope.launch {
             repository.sessionManager.userSessionFlow.collectLatest { session ->
                 _uiState.update { it.copy(currentUser = session) }
+                session?.let { repository.updateHeartbeat(it.username) }
+            }
+        }
+    }
+
+    private fun startRealtimePolling() {
+        viewModelScope.launch {
+            while (isActive) {
+                delay(4000)
+                try {
+                    val db = repository.getPostsDatabase(forceRemote = false)
+                    val targetPost = db.posts.firstOrNull { it.id == postId }
+                    if (targetPost != null && targetPost != _uiState.value.post) {
+                        _uiState.update { it.copy(post = targetPost) }
+                        resolveAvatarsAndMedia(targetPost)
+                    }
+                } catch (_: Exception) {}
             }
         }
     }
@@ -51,46 +74,8 @@ class PostDetailViewModel(
                 val db = repository.getPostsDatabase(forceRemote = false)
                 val targetPost = db.posts.firstOrNull { it.id == postId }
                 if (targetPost != null) {
-                    val mediaUrl = repository.resolveMediaUrl(targetPost.fileRef.ifEmpty { targetPost.mediaUrl })
-                    val usersDb = try { repository.getUsersDatabase(forceRemote = false) } catch (_: Exception) { null }
-                    val userMap = usersDb?.users?.associateBy { it.username.lowercase() } ?: emptyMap()
-
-                    val authorAvatarRef = if (targetPost.authorAvatarRef.isNotEmpty()) {
-                        targetPost.authorAvatarRef
-                    } else {
-                        userMap[targetPost.authorUsername.lowercase()]?.avatarRef ?: ""
-                    }
-
-                    val avatarMap = mutableMapOf<String, String>()
-                    if (authorAvatarRef.isNotEmpty()) {
-                        val avatarUrl = repository.resolveMediaUrl(authorAvatarRef)
-                        avatarMap[targetPost.authorAvatarRef] = avatarUrl
-                        avatarMap[targetPost.authorUsername] = avatarUrl
-                        avatarMap[authorAvatarRef] = avatarUrl
-                    }
-
-                    targetPost.comments.forEach { c ->
-                        val cAvatarRef = if (c.authorAvatarRef.isNotEmpty()) {
-                            c.authorAvatarRef
-                        } else {
-                            userMap[c.authorUsername.lowercase()]?.avatarRef ?: ""
-                        }
-                        if (cAvatarRef.isNotEmpty()) {
-                            val cUrl = repository.resolveMediaUrl(cAvatarRef)
-                            avatarMap[c.authorAvatarRef] = cUrl
-                            avatarMap[c.authorUsername] = cUrl
-                            avatarMap[cAvatarRef] = cUrl
-                        }
-                    }
-
-                    _uiState.update {
-                        it.copy(
-                            post = targetPost,
-                            resolvedMediaUrl = mediaUrl,
-                            resolvedAvatarUrls = avatarMap,
-                            isLoading = false
-                        )
-                    }
+                    _uiState.update { it.copy(post = targetPost, isLoading = false) }
+                    resolveAvatarsAndMedia(targetPost)
                 } else {
                     _uiState.update { it.copy(isLoading = false, errorMessage = "Publicación no encontrada.") }
                 }
@@ -100,23 +85,110 @@ class PostDetailViewModel(
         }
     }
 
+    private suspend fun resolveAvatarsAndMedia(targetPost: Post) {
+        val mediaUrl = repository.resolveMediaUrl(targetPost.fileRef.ifEmpty { targetPost.mediaUrl })
+        val usersDb = try { repository.getUsersDatabase(forceRemote = false) } catch (_: Exception) { null }
+        val userMap = usersDb?.users?.associateBy { it.username.lowercase() } ?: emptyMap()
+
+        val avatarMap = mutableMapOf<String, String>()
+        val onlineMap = mutableMapOf<String, Boolean>()
+
+        val authorUser = userMap[targetPost.authorUsername.lowercase()]
+        val authorAvatarRef = authorUser?.avatarRef?.ifEmpty { targetPost.authorAvatarRef } ?: targetPost.authorAvatarRef
+        if (authorAvatarRef.isNotEmpty()) {
+            val aUrl = repository.resolveMediaUrl(authorAvatarRef)
+            avatarMap[targetPost.authorUsername] = aUrl
+            avatarMap[authorAvatarRef] = aUrl
+        }
+        onlineMap[targetPost.authorUsername] = authorUser?.isOnline ?: false
+
+        targetPost.comments.forEach { c ->
+            val cUser = userMap[c.authorUsername.lowercase()]
+            val cAvatarRef = cUser?.avatarRef?.ifEmpty { c.authorAvatarRef } ?: c.authorAvatarRef
+            if (cAvatarRef.isNotEmpty()) {
+                val cUrl = repository.resolveMediaUrl(cAvatarRef)
+                avatarMap[c.authorUsername] = cUrl
+                avatarMap[cAvatarRef] = cUrl
+            }
+            onlineMap[c.authorUsername] = cUser?.isOnline ?: false
+        }
+
+        _uiState.update {
+            it.copy(
+                resolvedMediaUrl = mediaUrl,
+                resolvedAvatarUrls = avatarMap,
+                userOnlineStatus = onlineMap
+            )
+        }
+    }
+
     fun onCommentChange(text: String) {
         _uiState.update { it.copy(newCommentText = text) }
     }
 
-    fun toggleLike() {
-        val user = _uiState.value.currentUser ?: return
-        val currentPost = _uiState.value.post ?: return
+    fun startEditingComment(commentId: String, currentText: String) {
+        _uiState.update { it.copy(editingCommentId = commentId, editingCommentText = currentText) }
+    }
 
-        val alreadyLiked = currentPost.likes.contains(user.username)
-        val updatedLikes = if (alreadyLiked) currentPost.likes - user.username else currentPost.likes + user.username
-        _uiState.update { it.copy(post = currentPost.copy(likes = updatedLikes)) }
+    fun onEditingCommentTextChange(text: String) {
+        _uiState.update { it.copy(editingCommentText = text) }
+    }
+
+    fun cancelEditingComment() {
+        _uiState.update { it.copy(editingCommentId = null, editingCommentText = "") }
+    }
+
+    fun saveEditedComment() {
+        val user = _uiState.value.currentUser ?: return
+        val commentId = _uiState.value.editingCommentId ?: return
+        val newText = _uiState.value.editingCommentText.trim()
+        if (newText.isBlank()) return
 
         viewModelScope.launch {
             try {
-                repository.toggleLike(postId, user.username)
+                repository.editComment(postId, commentId, newText, user.username, user.isAdmin)
+                val currentPost = _uiState.value.post
+                if (currentPost != null) {
+                    val updatedComments = currentPost.comments.map {
+                        if (it.id == commentId) it.copy(text = newText, isEdited = true, editedAt = System.currentTimeMillis()) else it
+                    }
+                    _uiState.update {
+                        it.copy(
+                            post = currentPost.copy(comments = updatedComments),
+                            editingCommentId = null,
+                            editingCommentText = ""
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = "Error al editar comentario: ${e.message}") }
+            }
+        }
+    }
+
+    fun setReaction(emoji: String) {
+        val user = _uiState.value.currentUser ?: return
+        val currentPost = _uiState.value.post ?: return
+
+        val currentReaction = currentPost.reactions[user.username]
+        val updatedReactions = currentPost.reactions.toMutableMap()
+        if (currentReaction == emoji) {
+            updatedReactions.remove(user.username)
+        } else {
+            updatedReactions[user.username] = emoji
+        }
+        val updatedLikes = updatedReactions.keys.toList()
+        _uiState.update { it.copy(post = currentPost.copy(reactions = updatedReactions, likes = updatedLikes)) }
+
+        viewModelScope.launch {
+            try {
+                repository.setPostReaction(postId, user.username, emoji)
             } catch (_: Exception) {}
         }
+    }
+
+    fun toggleLike() {
+        setReaction("❤️")
     }
 
     fun addComment() {

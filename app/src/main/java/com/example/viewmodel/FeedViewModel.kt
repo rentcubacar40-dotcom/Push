@@ -5,11 +5,13 @@ import androidx.lifecycle.viewModelScope
 import com.example.data.model.Post
 import com.example.data.model.UserSession
 import com.example.data.repository.MoodgramRepository
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 data class FeedUiState(
@@ -19,6 +21,7 @@ data class FeedUiState(
     val errorMessage: String? = null,
     val resolvedMediaUrls: Map<String, String> = emptyMap(),
     val resolvedAvatarUrls: Map<String, String> = emptyMap(),
+    val userOnlineStatus: Map<String, Boolean> = emptyMap(),
     val currentUser: UserSession? = null
 )
 
@@ -32,12 +35,34 @@ class FeedViewModel(
     init {
         observeSession()
         loadFeed(forceRemote = false)
+        startRealtimePolling()
     }
 
     private fun observeSession() {
         viewModelScope.launch {
             repository.sessionManager.userSessionFlow.collectLatest { session ->
                 _uiState.update { it.copy(currentUser = session) }
+                session?.let { repository.updateHeartbeat(it.username) }
+            }
+        }
+    }
+
+    private fun startRealtimePolling() {
+        viewModelScope.launch {
+            while (isActive) {
+                delay(4000)
+                try {
+                    val session = _uiState.value.currentUser
+                    if (session != null) {
+                        repository.updateHeartbeat(session.username)
+                    }
+                    val remoteDb = repository.getPostsDatabase(forceRemote = false)
+                    val currentCount = _uiState.value.posts.size
+                    if (remoteDb.posts.size != currentCount || remoteDb.posts != _uiState.value.posts) {
+                        _uiState.update { it.copy(posts = remoteDb.posts) }
+                        resolveUrlsForPosts(remoteDb.posts)
+                    }
+                } catch (_: Exception) {}
             }
         }
     }
@@ -56,7 +81,7 @@ class FeedViewModel(
 
                 resolveUrlsForPosts(localDb.posts)
 
-                // 2. Si es remoto o inicial, actualizar en segundo plano con Moodle
+                // 2. Si es remoto o inicial, actualizar en segundo plano
                 if (forceRemote || !hasCache) {
                     val remoteDb = repository.getPostsDatabase(forceRemote = true)
                     _uiState.update {
@@ -73,7 +98,7 @@ class FeedViewModel(
                     it.copy(
                         isLoading = false,
                         isRefreshing = false,
-                        errorMessage = if (!hasCache) "No se pudo sincronizar el feed con Moodle." else null
+                        errorMessage = if (!hasCache) "No se pudo sincronizar el feed con el servidor." else null
                     )
                 }
             }
@@ -88,6 +113,7 @@ class FeedViewModel(
     private suspend fun resolveUrlsForPosts(posts: List<Post>) {
         val currentMedia = mutableMapOf<String, String>()
         val currentAvatars = mutableMapOf<String, String>()
+        val onlineStatus = mutableMapOf<String, Boolean>()
 
         val usersDb = try {
             repository.getUsersDatabase(forceRemote = false)
@@ -103,53 +129,57 @@ class FeedViewModel(
                 currentMedia[post.id] = url
             }
 
-            val avatarRef = if (post.authorAvatarRef.isNotEmpty()) {
-                post.authorAvatarRef
-            } else {
-                userMap[post.authorUsername.lowercase()]?.avatarRef ?: ""
-            }
+            val userInDb = userMap[post.authorUsername.lowercase()]
+            val avatarRef = userInDb?.avatarRef?.ifEmpty { post.authorAvatarRef } ?: post.authorAvatarRef
 
             if (avatarRef.isNotEmpty()) {
                 val url = repository.resolveMediaUrl(avatarRef)
                 currentAvatars[avatarRef] = url
                 currentAvatars[post.authorUsername] = url
-                if (post.authorAvatarRef.isNotEmpty()) {
-                    currentAvatars[post.authorAvatarRef] = url
-                }
             }
+
+            onlineStatus[post.authorUsername] = userInDb?.isOnline ?: false
         }
 
         _uiState.update {
             it.copy(
                 resolvedMediaUrls = currentMedia,
-                resolvedAvatarUrls = currentAvatars
+                resolvedAvatarUrls = currentAvatars,
+                userOnlineStatus = onlineStatus
             )
         }
     }
 
-    fun toggleLike(post: Post) {
+    fun setReaction(post: Post, emoji: String) {
         val user = _uiState.value.currentUser ?: return
         viewModelScope.launch {
             try {
                 // Optimistic UI update
-                val isLiked = post.likes.contains(user.username)
-                val updatedLikes = if (isLiked) post.likes - user.username else post.likes + user.username
+                val current = post.reactions[user.username]
+                val updatedReactions = post.reactions.toMutableMap()
+                if (current == emoji) {
+                    updatedReactions.remove(user.username)
+                } else {
+                    updatedReactions[user.username] = emoji
+                }
                 val updatedPosts = _uiState.value.posts.map {
-                    if (it.id == post.id) it.copy(likes = updatedLikes) else it
+                    if (it.id == post.id) it.copy(reactions = updatedReactions, likes = updatedReactions.keys.toList()) else it
                 }
                 _uiState.update { it.copy(posts = updatedPosts) }
 
-                // Sync with Moodle
-                repository.toggleLike(post.id, user.username)
+                repository.setPostReaction(post.id, user.username, emoji)
             } catch (_: Exception) {}
         }
+    }
+
+    fun toggleLike(post: Post) {
+        setReaction(post, "❤️")
     }
 
     fun deletePost(postId: String) {
         val user = _uiState.value.currentUser ?: return
         viewModelScope.launch {
             try {
-                // Optimistic removal
                 _uiState.update { state ->
                     state.copy(posts = state.posts.filterNot { it.id == postId })
                 }

@@ -27,6 +27,8 @@ import com.example.ui.components.FloatingNavBar
 import com.example.ui.navigation.Screen
 import com.example.ui.screens.AdminScreen
 import com.example.ui.screens.AuthScreen
+import com.example.ui.screens.ChatListScreen
+import com.example.ui.screens.ChatScreen
 import com.example.ui.screens.CreatePostScreen
 import com.example.ui.screens.FeedScreen
 import com.example.ui.screens.PostDetailScreen
@@ -36,6 +38,7 @@ import com.example.ui.screens.SplashScreen
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.AdminViewModel
 import com.example.viewmodel.AuthViewModel
+import com.example.viewmodel.ChatViewModel
 import com.example.viewmodel.CreatePostViewModel
 import com.example.viewmodel.FeedViewModel
 import com.example.viewmodel.PostDetailViewModel
@@ -97,12 +100,12 @@ fun MoodgramApp(repository: MoodgramRepository) {
     val currentSession by repository.sessionManager.userSessionFlow.collectAsState(initial = null)
     var isNavBarVisible by remember { mutableStateOf(true) }
 
-    // Determinar si la barra de navegación flotante debe mostrarse
     val shouldShowNavBar = currentSession != null &&
             currentRoute != Screen.Splash.route &&
             currentRoute != Screen.Auth.route &&
             currentRoute != Screen.CreatePost.route &&
-            !currentRoute.startsWith("post_detail")
+            !currentRoute.startsWith("post_detail") &&
+            !currentRoute.startsWith("chat_detail")
 
     Box(modifier = Modifier.fillMaxSize()) {
         NavHost(
@@ -152,8 +155,37 @@ fun MoodgramApp(repository: MoodgramRepository) {
                     onNavigateToProfile = { username ->
                         navController.navigate(Screen.Profile.createRoute(username))
                     },
+                    onNavigateToChats = {
+                        navController.navigate(Screen.Chats.route)
+                    },
                     onScrollDirectionChanged = { isScrollingUp ->
                         isNavBarVisible = isScrollingUp
+                    }
+                )
+            }
+
+            composable(Screen.Chats.route) {
+                val chatViewModel = remember { ChatViewModel(repository) }
+                ChatListScreen(
+                    viewModel = chatViewModel,
+                    onNavigateToChat = { chatId ->
+                        navController.navigate(Screen.ChatDetail.createRoute(chatId))
+                    }
+                )
+            }
+
+            composable(
+                route = Screen.ChatDetail.route,
+                arguments = listOf(navArgument("chatId") { type = NavType.StringType })
+            ) { backStackEntry ->
+                val chatId = backStackEntry.arguments?.getString("chatId") ?: ""
+                val chatViewModel = remember { ChatViewModel(repository) }
+                ChatScreen(
+                    viewModel = chatViewModel,
+                    chatId = chatId,
+                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateToProfile = { username ->
+                        navController.navigate(Screen.Profile.createRoute(username))
                     }
                 )
             }

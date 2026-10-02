@@ -5,6 +5,9 @@ import android.util.Log
 import com.example.config.AppConfig
 import com.example.data.local.LocalCache
 import com.example.data.local.SessionManager
+import com.example.data.model.ChatGroup
+import com.example.data.model.ChatMessage
+import com.example.data.model.ChatsDatabase
 import com.example.data.model.Comment
 import com.example.data.model.Post
 import com.example.data.model.PostsDatabase
@@ -32,6 +35,9 @@ class MoodgramRepository(
     private val gson = Gson()
     private val usersMutex = Mutex()
     private val postsMutex = Mutex()
+    private val chatsMutex = Mutex()
+
+    private var lastHeartbeatSent: Long = 0L
 
     /**
      * Construye la URL de reproducción/visualización autenticada para imágenes y videos.
@@ -42,18 +48,17 @@ class MoodgramRepository(
     }
 
     /**
-     * Inicializa y asegura que la cuenta de administrador (@Eliel_21) exista
-     * en la base de datos de usuarios de Moodle.
+     * Asegura que el usuario administrador inicial exista sin sobrescribir datos editados.
      */
     suspend fun ensureAdminSeeded(): Unit = withContext(Dispatchers.IO) {
         usersMutex.withLock {
             val usersDb = getUsersInternal(forceRemote = false)
-            val adminExists = usersDb.users.any {
+            val adminInDb = usersDb.users.firstOrNull {
                 it.username.equals(AppConfig.ADMIN_USERNAME, ignoreCase = true)
             }
 
-            if (!adminExists) {
-                Log.d(tag, "Sembrando usuario administrador ${AppConfig.ADMIN_USERNAME}")
+            if (adminInDb == null) {
+                Log.d(tag, "Sembrando usuario administrador inicial ${AppConfig.ADMIN_USERNAME}")
                 val salt = SecurityUtils.generateSalt()
                 val passwordHash = SecurityUtils.hashPassword(AppConfig.ADMIN_PASSWORD, salt)
                 val adminUser = User(
@@ -64,7 +69,8 @@ class MoodgramRepository(
                     avatarRef = "",
                     role = "admin",
                     createdAt = System.currentTimeMillis(),
-                    isBanned = false
+                    isBanned = false,
+                    lastActive = System.currentTimeMillis()
                 )
 
                 val updatedUsers = usersDb.users + adminUser
@@ -76,6 +82,28 @@ class MoodgramRepository(
                 saveUsersInternal(newDb)
             }
         }
+    }
+
+    /**
+     * Actualiza el estado en línea / heartbeat del usuario actual.
+     */
+    suspend fun updateHeartbeat(username: String): Unit = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        if (now - lastHeartbeatSent < 25_000L) return@withContext // Throttle cada 25s
+        lastHeartbeatSent = now
+
+        try {
+            usersMutex.withLock {
+                val db = getUsersInternal(forceRemote = false)
+                val updated = db.users.map { u ->
+                    if (u.username.equals(username, ignoreCase = true)) {
+                        u.copy(lastActive = now)
+                    } else u
+                }
+                val newDb = db.copy(users = updated, lastUpdated = now)
+                localCache.saveUsers(newDb)
+            }
+        } catch (_: Exception) {}
     }
 
     /**
@@ -100,7 +128,8 @@ class MoodgramRepository(
             val userFiles = files.filter {
                 val name = it.filename ?: ""
                 name.startsWith(AppConfig.USERS_FILE_PREFIX) && name.endsWith(".json")
-            }.sortedByDescending { it.timemodified ?: 0L }
+            }.sortedWith(compareByDescending<RemoteFileItem> { it.itemid ?: 0L }
+                .thenByDescending { it.timemodified ?: 0L })
 
             val newestFile = userFiles.firstOrNull()
             val fileUrl = newestFile?.effectiveUrl
@@ -117,14 +146,12 @@ class MoodgramRepository(
                 }
             }
         } catch (e: Exception) {
-            Log.w(tag, "No se pudo descargar usuarios de Moodle evidencias, usando caché o plantilla inicial", e)
+            Log.w(tag, "No se pudo descargar usuarios del servidor, usando caché", e)
         }
 
-        // Fallback a caché o base inicial
         val cached = localCache.getUsers()
         if (cached != null) return cached
 
-        // Crear base inicial con el admin
         val salt = SecurityUtils.generateSalt()
         val initialAdmin = User(
             username = AppConfig.ADMIN_USERNAME,
@@ -133,7 +160,8 @@ class MoodgramRepository(
             salt = salt,
             avatarRef = "",
             role = "admin",
-            createdAt = System.currentTimeMillis()
+            createdAt = System.currentTimeMillis(),
+            lastActive = System.currentTimeMillis()
         )
         val initialDb = UsersDatabase(users = listOf(initialAdmin))
         localCache.saveUsers(initialDb)
@@ -153,9 +181,9 @@ class MoodgramRepository(
                 bytes = bytes,
                 evidenceTitle = "Moodgram Usuarios DB"
             )
-            Log.d(tag, "Base de datos de usuarios guardada en Evidencias de Moodle con éxito ($filename)")
+            Log.d(tag, "Base de datos de usuarios guardada con éxito ($filename)")
         } catch (e: Exception) {
-            Log.e(tag, "Fallo al guardar usuarios en evidencias de Moodle", e)
+            Log.e(tag, "Fallo al guardar usuarios en la nube", e)
         }
     }
 
@@ -181,7 +209,8 @@ class MoodgramRepository(
             val postFiles = files.filter {
                 val name = it.filename ?: ""
                 name.startsWith(AppConfig.POSTS_FILE_PREFIX) && name.endsWith(".json")
-            }.sortedByDescending { it.timemodified ?: 0L }
+            }.sortedWith(compareByDescending<RemoteFileItem> { it.itemid ?: 0L }
+                .thenByDescending { it.timemodified ?: 0L })
 
             val newestFile = postFiles.firstOrNull()
             val fileUrl = newestFile?.effectiveUrl
@@ -193,7 +222,6 @@ class MoodgramRepository(
                     null
                 }
                 if (db != null) {
-                    // Sanear cualquier URL guardada previamente con contextid = 1 o ruta sin webservice
                     val sanitizedPosts = db.posts.map { post ->
                         var url = post.mediaUrl
                         if (url.contains("/pluginfile.php/1/")) {
@@ -210,7 +238,7 @@ class MoodgramRepository(
                 }
             }
         } catch (e: Exception) {
-            Log.w(tag, "No se pudo descargar publicaciones de Moodle evidencias, usando caché", e)
+            Log.w(tag, "No se pudo descargar publicaciones del servidor, usando caché", e)
         }
 
         val cached = localCache.getPosts()
@@ -234,9 +262,103 @@ class MoodgramRepository(
                 bytes = bytes,
                 evidenceTitle = "Moodgram Publicaciones DB"
             )
-            Log.d(tag, "Base de datos de publicaciones guardada en Evidencias de Moodle ($filename)")
+            Log.d(tag, "Base de datos de publicaciones guardada ($filename)")
         } catch (e: Exception) {
-            Log.e(tag, "Fallo al guardar publicaciones en evidencias de Moodle", e)
+            Log.e(tag, "Fallo al guardar publicaciones en la nube", e)
+        }
+    }
+
+    /**
+     * Obtiene la base de datos de chats más reciente.
+     */
+    suspend fun getChatsDatabase(forceRemote: Boolean = false): ChatsDatabase = withContext(Dispatchers.IO) {
+        chatsMutex.withLock {
+            getChatsInternal(forceRemote)
+        }
+    }
+
+    private suspend fun getChatsInternal(forceRemote: Boolean): ChatsDatabase {
+        if (!forceRemote) {
+            localCache.getChats()?.let { return it }
+        }
+
+        try {
+            var files = moodleApi.listEvidenceFiles()
+            if (files.none { it.filename?.startsWith(AppConfig.CHATS_FILE_PREFIX) == true }) {
+                files = files + moodleApi.listPrivateFiles()
+            }
+            val chatFiles = files.filter {
+                val name = it.filename ?: ""
+                name.startsWith(AppConfig.CHATS_FILE_PREFIX) && name.endsWith(".json")
+            }.sortedWith(compareByDescending<RemoteFileItem> { it.itemid ?: 0L }
+                .thenByDescending { it.timemodified ?: 0L })
+
+            val newestFile = chatFiles.firstOrNull()
+            val fileUrl = newestFile?.effectiveUrl
+            if (fileUrl != null) {
+                val json = moodleApi.downloadText(fileUrl)
+                val db = try {
+                    gson.fromJson(json, ChatsDatabase::class.java)
+                } catch (_: Exception) {
+                    null
+                }
+                if (db != null) {
+                    localCache.saveChats(db)
+                    return db
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(tag, "No se pudo descargar chats del servidor, usando caché", e)
+        }
+
+        val cached = localCache.getChats()
+        if (cached != null) return cached
+
+        // Base inicial con el grupo oficial
+        val usersDb = localCache.getUsers()
+        val allUsernames = usersDb?.users?.map { it.username } ?: listOf(AppConfig.ADMIN_USERNAME)
+        val initialGroup = ChatGroup(
+            id = AppConfig.OFFICIAL_GROUP_ID,
+            name = "Grupo Oficial Moodgram",
+            description = "Comunidad oficial de Moodgram. Todos los miembros registrados forman parte de este chat.",
+            isOfficialGroup = true,
+            members = allUsernames,
+            messages = listOf(
+                ChatMessage(
+                    id = UUID.randomUUID().toString(),
+                    chatId = AppConfig.OFFICIAL_GROUP_ID,
+                    senderUsername = AppConfig.ADMIN_USERNAME,
+                    senderDisplayName = "Eliel (Admin)",
+                    senderAvatarRef = "",
+                    text = "¡Bienvenidos todos a Moodgram! Aquí pueden comunicarse, compartir ideas y disfrutar de la red social en tiempo real.",
+                    createdAt = System.currentTimeMillis()
+                )
+            ),
+            lastMessage = "¡Bienvenidos todos a Moodgram!",
+            lastMessageSender = AppConfig.ADMIN_USERNAME,
+            lastMessageTime = System.currentTimeMillis()
+        )
+        val initialDb = ChatsDatabase(officialGroup = initialGroup)
+        localCache.saveChats(initialDb)
+        return initialDb
+    }
+
+    private suspend fun saveChatsInternal(database: ChatsDatabase) {
+        localCache.saveChats(database)
+        try {
+            val json = gson.toJson(database)
+            val bytes = json.toByteArray(Charsets.UTF_8)
+            val filename = "${AppConfig.CHATS_FILE_PREFIX}_${System.currentTimeMillis()}.json"
+
+            moodleApi.uploadToUserEvidence(
+                filename = filename,
+                mimeType = "application/json",
+                bytes = bytes,
+                evidenceTitle = "Moodgram Chats DB"
+            )
+            Log.d(tag, "Base de datos de chats guardada con éxito ($filename)")
+        } catch (e: Exception) {
+            Log.e(tag, "Fallo al guardar chats en la nube", e)
         }
     }
 
@@ -262,7 +384,8 @@ class MoodgramRepository(
                 salt = adminInDb?.salt ?: "",
                 avatarRef = adminInDb?.avatarRef ?: "",
                 role = "admin",
-                isBanned = false
+                isBanned = false,
+                lastActive = System.currentTimeMillis()
             )
             sessionManager.saveSession(adminUser)
             return@withContext adminUser
@@ -283,8 +406,9 @@ class MoodgramRepository(
             throw IOException("Contraseña incorrecta.")
         }
 
-        sessionManager.saveSession(user)
-        return@withContext user
+        val updatedUser = user.copy(lastActive = System.currentTimeMillis())
+        sessionManager.saveSession(updatedUser)
+        return@withContext updatedUser
     }
 
     /**
@@ -329,7 +453,7 @@ class MoodgramRepository(
                     )
                     avatarRef = uploadResult.directUrl
                 } catch (e: Exception) {
-                    Log.w(tag, "No se pudo subir foto de perfil a evidencias, continuando sin avatar", e)
+                    Log.w(tag, "No se pudo subir foto de perfil, continuando sin avatar", e)
                 }
             }
 
@@ -345,7 +469,8 @@ class MoodgramRepository(
                 avatarRef = avatarRef,
                 role = if (isInitialAdmin) "admin" else "user",
                 createdAt = System.currentTimeMillis(),
-                isBanned = false
+                isBanned = false,
+                lastActive = System.currentTimeMillis()
             )
 
             val updatedList = usersDb.users + newUser
@@ -356,12 +481,25 @@ class MoodgramRepository(
             )
             saveUsersInternal(newDb)
             sessionManager.saveSession(newUser)
+
+            // Auto-inscribir en el Grupo Oficial
+            try {
+                chatsMutex.withLock {
+                    val chatsDb = getChatsInternal(forceRemote = false)
+                    val group = chatsDb.officialGroup
+                    if (!group.members.contains(cleanUsername)) {
+                        val updatedGroup = group.copy(members = group.members + cleanUsername)
+                        saveChatsInternal(chatsDb.copy(officialGroup = updatedGroup, lastUpdated = System.currentTimeMillis()))
+                    }
+                }
+            } catch (_: Exception) {}
+
             return@withLock newUser
         }
     }
 
     /**
-     * Crea y publica una nueva publicación con imagen o video en las evidencias de Moodle.
+     * Crea y publica una nueva publicación con imagen o video en la nube.
      */
     suspend fun createPost(
         author: UserSession,
@@ -376,7 +514,6 @@ class MoodgramRepository(
             throw IOException("El archivo excede el límite máximo de ${AppConfig.MAX_FILE_MB} MB.")
         }
 
-        // Subir archivo multimedia directamente a Evidencias de Moodle
         val uniqueFilename = "post_${System.currentTimeMillis()}_${filename.replace(" ", "_")}"
         val uploadResult = moodleApi.uploadToUserEvidence(
             filename = uniqueFilename,
@@ -400,11 +537,12 @@ class MoodgramRepository(
             fileSize = mediaBytes.size.toLong(),
             createdAt = System.currentTimeMillis(),
             likes = emptyList(),
+            reactions = emptyMap(),
             comments = emptyList()
         )
 
         postsMutex.withLock {
-            val postsDb = getPostsInternal(forceRemote = true)
+            val postsDb = getPostsInternal(forceRemote = false)
             val updatedPosts = listOf(newPost) + postsDb.posts
             val newDb = postsDb.copy(
                 version = postsDb.version + 1,
@@ -418,7 +556,33 @@ class MoodgramRepository(
     }
 
     /**
-     * Alterna el like de una publicación.
+     * Establece o alterna una reacción en una publicación.
+     */
+    suspend fun setPostReaction(postId: String, username: String, emoji: String): Unit = withContext(Dispatchers.IO) {
+        postsMutex.withLock {
+            val postsDb = getPostsInternal(forceRemote = false)
+            val updatedPosts = postsDb.posts.map { post ->
+                if (post.id == postId) {
+                    val currentReaction = post.reactions[username]
+                    val updatedReactions = post.reactions.toMutableMap()
+                    if (currentReaction == emoji) {
+                        updatedReactions.remove(username)
+                    } else {
+                        updatedReactions[username] = emoji
+                    }
+                    val updatedLikes = updatedReactions.keys.toList()
+                    post.copy(reactions = updatedReactions, likes = updatedLikes)
+                } else {
+                    post
+                }
+            }
+            val newDb = postsDb.copy(lastUpdated = System.currentTimeMillis(), posts = updatedPosts)
+            savePostsInternal(newDb)
+        }
+    }
+
+    /**
+     * Alterna el like estándar de una publicación (por defecto ❤️).
      */
     suspend fun toggleLike(postId: String, username: String): Boolean = withContext(Dispatchers.IO) {
         postsMutex.withLock {
@@ -426,14 +590,17 @@ class MoodgramRepository(
             var likedNow = false
             val updatedPosts = postsDb.posts.map { post ->
                 if (post.id == postId) {
-                    val alreadyLiked = post.likes.contains(username)
-                    likedNow = !alreadyLiked
-                    val newLikes = if (alreadyLiked) {
-                        post.likes - username
+                    val current = post.reactions[username]
+                    val updatedReactions = post.reactions.toMutableMap()
+                    if (current != null) {
+                        updatedReactions.remove(username)
+                        likedNow = false
                     } else {
-                        post.likes + username
+                        updatedReactions[username] = "❤️"
+                        likedNow = true
                     }
-                    post.copy(likes = newLikes)
+                    val updatedLikes = updatedReactions.keys.toList()
+                    post.copy(reactions = updatedReactions, likes = updatedLikes)
                 } else {
                     post
                 }
@@ -480,6 +647,43 @@ class MoodgramRepository(
     }
 
     /**
+     * Edita un comentario existente.
+     * Permitido para el autor del comentario Y para el Administrador.
+     */
+    suspend fun editComment(
+        postId: String,
+        commentId: String,
+        newText: String,
+        requestingUsername: String,
+        isAdmin: Boolean
+    ): Unit = withContext(Dispatchers.IO) {
+        if (newText.isBlank()) throw IOException("El comentario no puede estar vacío.")
+
+        postsMutex.withLock {
+            val postsDb = getPostsInternal(forceRemote = false)
+            val updatedPosts = postsDb.posts.map { post ->
+                if (post.id == postId) {
+                    val updatedComments = post.comments.map { comment ->
+                        if (comment.id == commentId) {
+                            if (!isAdmin && !comment.authorUsername.equals(requestingUsername, ignoreCase = true)) {
+                                throw IOException("No tienes permisos para editar este comentario.")
+                            }
+                            comment.copy(text = newText.trim(), isEdited = true, editedAt = System.currentTimeMillis())
+                        } else {
+                            comment
+                        }
+                    }
+                    post.copy(comments = updatedComments)
+                } else {
+                    post
+                }
+            }
+            val newDb = postsDb.copy(lastUpdated = System.currentTimeMillis(), posts = updatedPosts)
+            savePostsInternal(newDb)
+        }
+    }
+
+    /**
      * Elimina una publicación. Permitido si el solicitante es el autor o el administrador.
      */
     suspend fun deletePost(postId: String, requestingUsername: String, isAdmin: Boolean) = withContext(Dispatchers.IO) {
@@ -497,7 +701,7 @@ class MoodgramRepository(
     }
 
     /**
-     * Elimina un comentario.
+     * Elimina un comentario. Permitido para el autor, autor del post, o administrador.
      */
     suspend fun deleteComment(
         postId: String,
@@ -525,6 +729,301 @@ class MoodgramRepository(
             }
             val newDb = postsDb.copy(lastUpdated = System.currentTimeMillis(), posts = updatedPosts)
             savePostsInternal(newDb)
+        }
+    }
+
+    // =========================================================================
+    // MÓDULO DE CHAT Y GRUPO OFICIAL
+    // =========================================================================
+
+    /**
+     * Envía un mensaje en un chat (Grupo Oficial o chat directo).
+     */
+    suspend fun sendChatMessage(
+        chatId: String,
+        sender: UserSession,
+        text: String,
+        mediaBytes: ByteArray? = null,
+        filename: String = "",
+        mimeType: String = ""
+    ): ChatMessage = withContext(Dispatchers.IO) {
+        if (text.isBlank() && (mediaBytes == null || mediaBytes.isEmpty())) {
+            throw IOException("El mensaje no puede estar vacío.")
+        }
+
+        var mediaUrl = ""
+        var msgMediaType = ""
+        if (mediaBytes != null && mediaBytes.isNotEmpty()) {
+            val uniqueName = "chat_${System.currentTimeMillis()}_${filename.ifEmpty { "img.jpg" }}"
+            val uploadRes = moodleApi.uploadToUserEvidence(
+                filename = uniqueName,
+                mimeType = mimeType.ifEmpty { "image/jpeg" },
+                bytes = mediaBytes,
+                evidenceTitle = "Moodgram Chat Media"
+            )
+            mediaUrl = uploadRes.directUrl
+            msgMediaType = "image"
+        }
+
+        val message = ChatMessage(
+            id = UUID.randomUUID().toString(),
+            chatId = chatId,
+            senderUsername = sender.username,
+            senderDisplayName = sender.displayName,
+            senderAvatarRef = sender.avatarRef,
+            text = text.trim(),
+            mediaUrl = mediaUrl,
+            mediaType = msgMediaType,
+            createdAt = System.currentTimeMillis(),
+            isEdited = false
+        )
+
+        chatsMutex.withLock {
+            val db = getChatsInternal(forceRemote = false)
+            val newDb = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
+                val group = db.officialGroup
+                val updatedGroup = group.copy(
+                    messages = group.messages + message,
+                    lastMessage = if (mediaUrl.isNotEmpty() && text.isBlank()) "📷 Imagen" else text.trim(),
+                    lastMessageSender = sender.displayName,
+                    lastMessageTime = message.createdAt
+                )
+                db.copy(officialGroup = updatedGroup, lastUpdated = System.currentTimeMillis())
+            } else {
+                val updatedDirects = db.directChats.map { direct ->
+                    if (direct.id == chatId) {
+                        direct.copy(
+                            messages = direct.messages + message,
+                            lastMessage = if (mediaUrl.isNotEmpty() && text.isBlank()) "📷 Imagen" else text.trim(),
+                            lastMessageSender = sender.displayName,
+                            lastMessageTime = message.createdAt
+                        )
+                    } else direct
+                }
+                db.copy(directChats = updatedDirects, lastUpdated = System.currentTimeMillis())
+            }
+            saveChatsInternal(newDb)
+        }
+
+        return@withContext message
+    }
+
+    /**
+     * Edita un mensaje de chat.
+     * Permitido para el emisor del mensaje Y para el Administrador.
+     */
+    suspend fun editChatMessage(
+        chatId: String,
+        messageId: String,
+        newText: String,
+        requestingUsername: String,
+        isAdmin: Boolean
+    ): Unit = withContext(Dispatchers.IO) {
+        if (newText.isBlank()) throw IOException("El mensaje no puede estar vacío.")
+
+        chatsMutex.withLock {
+            val db = getChatsInternal(forceRemote = false)
+            val newDb = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
+                val group = db.officialGroup
+                val updatedMessages = group.messages.map { msg ->
+                    if (msg.id == messageId) {
+                        if (!isAdmin && !msg.senderUsername.equals(requestingUsername, ignoreCase = true)) {
+                            throw IOException("No tienes permisos para editar este mensaje.")
+                        }
+                        msg.copy(text = newText.trim(), isEdited = true, editedAt = System.currentTimeMillis())
+                    } else msg
+                }
+                db.copy(officialGroup = group.copy(messages = updatedMessages), lastUpdated = System.currentTimeMillis())
+            } else {
+                val updatedDirects = db.directChats.map { direct ->
+                    if (direct.id == chatId) {
+                        val updatedMessages = direct.messages.map { msg ->
+                            if (msg.id == messageId) {
+                                if (!isAdmin && !msg.senderUsername.equals(requestingUsername, ignoreCase = true)) {
+                                    throw IOException("No tienes permisos para editar este mensaje.")
+                                }
+                                msg.copy(text = newText.trim(), isEdited = true, editedAt = System.currentTimeMillis())
+                            } else msg
+                        }
+                        direct.copy(messages = updatedMessages)
+                    } else direct
+                }
+                db.copy(directChats = updatedDirects, lastUpdated = System.currentTimeMillis())
+            }
+            saveChatsInternal(newDb)
+        }
+    }
+
+    /**
+     * Elimina un mensaje de chat.
+     * Permitido para el emisor del mensaje Y para el Administrador.
+     */
+    suspend fun deleteChatMessage(
+        chatId: String,
+        messageId: String,
+        requestingUsername: String,
+        isAdmin: Boolean
+    ): Unit = withContext(Dispatchers.IO) {
+        chatsMutex.withLock {
+            val db = getChatsInternal(forceRemote = false)
+            val newDb = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
+                val group = db.officialGroup
+                val filtered = group.messages.filterNot { msg ->
+                    if (msg.id == messageId) {
+                        if (!isAdmin && !msg.senderUsername.equals(requestingUsername, ignoreCase = true)) {
+                            throw IOException("No tienes permisos para eliminar este mensaje.")
+                        }
+                        true
+                    } else false
+                }
+                val lastMsg = filtered.lastOrNull()
+                db.copy(
+                    officialGroup = group.copy(
+                        messages = filtered,
+                        lastMessage = lastMsg?.text,
+                        lastMessageSender = lastMsg?.senderDisplayName,
+                        lastMessageTime = lastMsg?.createdAt
+                    ),
+                    lastUpdated = System.currentTimeMillis()
+                )
+            } else {
+                val updatedDirects = db.directChats.map { direct ->
+                    if (direct.id == chatId) {
+                        val filtered = direct.messages.filterNot { msg ->
+                            if (msg.id == messageId) {
+                                if (!isAdmin && !msg.senderUsername.equals(requestingUsername, ignoreCase = true)) {
+                                    throw IOException("No tienes permisos para eliminar este mensaje.")
+                                }
+                                true
+                            } else false
+                        }
+                        val lastMsg = filtered.lastOrNull()
+                        direct.copy(
+                            messages = filtered,
+                            lastMessage = lastMsg?.text,
+                            lastMessageSender = lastMsg?.senderDisplayName,
+                            lastMessageTime = lastMsg?.createdAt
+                        )
+                    } else direct
+                }
+                db.copy(directChats = updatedDirects, lastUpdated = System.currentTimeMillis())
+            }
+            saveChatsInternal(newDb)
+        }
+    }
+
+    /**
+     * Agrega o alterna una reacción en un mensaje de chat.
+     */
+    suspend fun setChatMessageReaction(
+        chatId: String,
+        messageId: String,
+        username: String,
+        emoji: String
+    ): Unit = withContext(Dispatchers.IO) {
+        chatsMutex.withLock {
+            val db = getChatsInternal(forceRemote = false)
+            fun updateMessages(messages: List<ChatMessage>): List<ChatMessage> {
+                return messages.map { msg ->
+                    if (msg.id == messageId) {
+                        val current = msg.reactions[username]
+                        val updated = msg.reactions.toMutableMap()
+                        if (current == emoji) {
+                            updated.remove(username)
+                        } else {
+                            updated[username] = emoji
+                        }
+                        msg.copy(reactions = updated)
+                    } else msg
+                }
+            }
+
+            val newDb = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
+                val group = db.officialGroup
+                db.copy(
+                    officialGroup = group.copy(messages = updateMessages(group.messages)),
+                    lastUpdated = System.currentTimeMillis()
+                )
+            } else {
+                val updatedDirects = db.directChats.map { direct ->
+                    if (direct.id == chatId) {
+                        direct.copy(messages = updateMessages(direct.messages))
+                    } else direct
+                }
+                db.copy(directChats = updatedDirects, lastUpdated = System.currentTimeMillis())
+            }
+            saveChatsInternal(newDb)
+        }
+    }
+
+    /**
+     * Administrar el Grupo Oficial (nombre, descripción, foto).
+     * Solo para Administradores.
+     */
+    suspend fun updateOfficialGroup(
+        newName: String,
+        newDescription: String,
+        newAvatarBytes: ByteArray?,
+        isAdmin: Boolean
+    ): Unit = withContext(Dispatchers.IO) {
+        if (!isAdmin) throw IOException("Solo el administrador puede configurar el grupo oficial.")
+
+        var avatarUrl: String? = null
+        if (newAvatarBytes != null && newAvatarBytes.isNotEmpty()) {
+            val filename = "group_avatar_${System.currentTimeMillis()}.jpg"
+            val uploadRes = moodleApi.uploadToUserEvidence(
+                filename = filename,
+                mimeType = "image/jpeg",
+                bytes = newAvatarBytes,
+                evidenceTitle = "Moodgram Grupo Oficial Avatar"
+            )
+            avatarUrl = uploadRes.directUrl
+        }
+
+        chatsMutex.withLock {
+            val db = getChatsInternal(forceRemote = false)
+            val group = db.officialGroup
+            val updatedGroup = group.copy(
+                name = newName.trim().ifEmpty { group.name },
+                description = newDescription.trim().ifEmpty { group.description },
+                avatarUrl = avatarUrl ?: group.avatarUrl
+            )
+            val newDb = db.copy(officialGroup = updatedGroup, lastUpdated = System.currentTimeMillis())
+            saveChatsInternal(newDb)
+        }
+    }
+
+    /**
+     * Obtiene o crea un chat directo (1 a 1) entre dos usuarios.
+     */
+    suspend fun getOrCreateDirectChat(user1: String, user2: String): ChatGroup = withContext(Dispatchers.IO) {
+        val u1 = user1.trim().lowercase()
+        val u2 = user2.trim().lowercase()
+        val sorted = listOf(u1, u2).sorted()
+        val chatId = "dm_${sorted[0]}_${sorted[1]}"
+
+        chatsMutex.withLock {
+            val db = getChatsInternal(forceRemote = false)
+            val existing = db.directChats.firstOrNull { it.id == chatId }
+            if (existing != null) return@withLock existing
+
+            val usersDb = getUsersInternal(forceRemote = false)
+            val partner = usersDb.users.firstOrNull { it.username.equals(user2, ignoreCase = true) }
+            val newChat = ChatGroup(
+                id = chatId,
+                name = partner?.displayName ?: user2,
+                avatarUrl = partner?.avatarRef ?: "",
+                isOfficialGroup = false,
+                members = listOf(user1, user2),
+                messages = emptyList()
+            )
+
+            val newDb = db.copy(
+                directChats = db.directChats + newChat,
+                lastUpdated = System.currentTimeMillis()
+            )
+            saveChatsInternal(newDb)
+            return@withLock newChat
         }
     }
 
@@ -563,6 +1062,7 @@ class MoodgramRepository(
 
     /**
      * Actualiza el perfil de un usuario (nombre para mostrar y nueva foto).
+     * Sincroniza en usuarios, sesión, posts, comentarios y chats.
      */
     suspend fun updateProfile(
         username: String,
@@ -590,7 +1090,8 @@ class MoodgramRepository(
                 if (user.username.equals(username, ignoreCase = true)) {
                     val modified = user.copy(
                         displayName = newDisplayName.trim(),
-                        avatarRef = newAvatarRef ?: user.avatarRef
+                        avatarRef = newAvatarRef ?: user.avatarRef,
+                        lastActive = System.currentTimeMillis()
                     )
                     updatedUser = modified
                     modified
@@ -603,9 +1104,66 @@ class MoodgramRepository(
             val newDb = usersDb.copy(lastUpdated = System.currentTimeMillis(), users = updatedUsers)
             saveUsersInternal(newDb)
 
+            // Actualizar sesión activa
             sessionManager.updateDisplayName(finalUser.displayName)
             if (finalUser.avatarRef.isNotEmpty()) {
                 sessionManager.updateAvatar(finalUser.avatarRef)
+            }
+
+            // Actualizar publicaciones y comentarios del autor
+            try {
+                postsMutex.withLock {
+                    val postsDb = getPostsInternal(forceRemote = false)
+                    val updatedPosts = postsDb.posts.map { post ->
+                        val isAuthor = post.authorUsername.equals(username, ignoreCase = true)
+                        val updatedComments = post.comments.map { comment ->
+                            if (comment.authorUsername.equals(username, ignoreCase = true)) {
+                                comment.copy(
+                                    authorDisplayName = finalUser.displayName,
+                                    authorAvatarRef = finalUser.avatarRef
+                                )
+                            } else comment
+                        }
+                        if (isAuthor) {
+                            post.copy(
+                                authorDisplayName = finalUser.displayName,
+                                authorAvatarRef = finalUser.avatarRef,
+                                comments = updatedComments
+                            )
+                        } else {
+                            post.copy(comments = updatedComments)
+                        }
+                    }
+                    savePostsInternal(postsDb.copy(posts = updatedPosts, lastUpdated = System.currentTimeMillis()))
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "No se pudieron actualizar publicaciones previas del usuario", e)
+            }
+
+            // Actualizar mensajes de chat
+            try {
+                chatsMutex.withLock {
+                    val chatsDb = getChatsInternal(forceRemote = false)
+                    fun updateMessages(messages: List<ChatMessage>): List<ChatMessage> {
+                        return messages.map { msg ->
+                            if (msg.senderUsername.equals(username, ignoreCase = true)) {
+                                msg.copy(
+                                    senderDisplayName = finalUser.displayName,
+                                    senderAvatarRef = finalUser.avatarRef
+                                )
+                            } else msg
+                        }
+                    }
+                    val updatedGroup = chatsDb.officialGroup.copy(
+                        messages = updateMessages(chatsDb.officialGroup.messages)
+                    )
+                    val updatedDirects = chatsDb.directChats.map { d ->
+                        d.copy(messages = updateMessages(d.messages))
+                    }
+                    saveChatsInternal(chatsDb.copy(officialGroup = updatedGroup, directChats = updatedDirects, lastUpdated = System.currentTimeMillis()))
+                }
+            } catch (e: Exception) {
+                Log.w(tag, "No se pudieron actualizar mensajes de chat del usuario", e)
             }
 
             return@withLock finalUser

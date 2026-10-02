@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 
 data class SettingsUiState(
     val currentUser: UserSession? = null,
+    val resolvedAvatarUrl: String = "",
     val themeMode: String = "SYSTEM",
     val cacheCleared: Boolean = false,
     val message: String? = null
@@ -28,9 +29,27 @@ class SettingsViewModel(
     init {
         viewModelScope.launch {
             repository.sessionManager.userSessionFlow.collectLatest { session ->
-                _uiState.update { it.copy(currentUser = session) }
+                if (session != null) {
+                    val usersDb = try { repository.getUsersDatabase(forceRemote = false) } catch (_: Exception) { null }
+                    val userInDb = usersDb?.users?.firstOrNull { it.username.equals(session.username, ignoreCase = true) }
+                    val avatarRef = userInDb?.avatarRef?.ifEmpty { session.avatarRef } ?: session.avatarRef
+                    val avatarUrl = if (avatarRef.isNotEmpty()) repository.resolveMediaUrl(avatarRef) else ""
+
+                    _uiState.update {
+                        it.copy(
+                            currentUser = session.copy(
+                                displayName = userInDb?.displayName ?: session.displayName,
+                                avatarRef = avatarRef
+                            ),
+                            resolvedAvatarUrl = avatarUrl
+                        )
+                    }
+                } else {
+                    _uiState.update { it.copy(currentUser = null, resolvedAvatarUrl = "") }
+                }
             }
         }
+
         viewModelScope.launch {
             repository.sessionManager.themeModeFlow.collectLatest { mode ->
                 _uiState.update { it.copy(themeMode = mode) }

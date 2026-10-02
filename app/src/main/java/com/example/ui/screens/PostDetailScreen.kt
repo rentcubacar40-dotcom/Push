@@ -1,25 +1,24 @@
 package com.example.ui.screens
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -30,13 +29,15 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +48,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -70,13 +72,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.config.AppConfig
 import com.example.ui.components.AvatarImage
 import com.example.ui.components.VideoPlayerView
 import com.example.ui.theme.MoodgramMagenta
+import com.example.ui.theme.MoodgramViolet
 import com.example.util.MediaUtils
 import com.example.viewmodel.PostDetailViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PostDetailScreen(
     viewModel: PostDetailViewModel,
@@ -86,10 +89,10 @@ fun PostDetailScreen(
     val state by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     var showMenu by remember { mutableStateOf(false) }
+    var showReactionPicker by remember { mutableStateOf(false) }
 
-    BackHandler {
-        onNavigateBack()
-    }
+    val userReaction = state.currentUser?.let { state.post?.getUserReaction(it.username) }
+    val isLiked = userReaction != null
 
     LaunchedEffect(state.errorMessage) {
         state.errorMessage?.let { msg ->
@@ -162,7 +165,7 @@ fun PostDetailScreen(
                                     text = { Text("Eliminar publicación", color = MaterialTheme.colorScheme.error) },
                                     onClick = {
                                         showMenu = false
-                                        viewModel.deletePost { onNavigateBack() }
+                                        viewModel.deletePost(onDeleted = onNavigateBack)
                                     }
                                 )
                             }
@@ -173,25 +176,25 @@ fun PostDetailScreen(
 
             if (state.isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    CircularProgressIndicator(color = MoodgramViolet)
                 }
             } else if (state.post != null) {
                 val post = state.post!!
-                val isLiked = state.currentUser != null && post.likes.contains(state.currentUser!!.username)
 
                 LazyColumn(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
+                        .fillMaxWidth(),
+                    contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
-                    // Contenido Multimedia Principal
+                    // Contenido Multimedia completo
                     item {
                         val token = "ddd9b89ebd8115d4a9c1eaae298afde9"
                         val rawMedia = state.resolvedMediaUrl.ifEmpty { post.mediaUrl }
                         val sanitizedMedia = remember(rawMedia) {
-                            var url = rawMedia
+                            var url = rawMedia.replace("\\u003d", "=").trim()
                             if (url.contains("/pluginfile.php/1/")) {
-                                url = url.replace("/pluginfile.php/1/", "/pluginfile.php/${com.example.config.AppConfig.DEFAULT_CONTEXT_ID}/")
+                                url = url.replace("/pluginfile.php/1/", "/pluginfile.php/${AppConfig.DEFAULT_CONTEXT_ID}/")
                             }
                             if (url.contains("/pluginfile.php/") && !url.contains("/webservice/pluginfile.php/")) {
                                 url = url.replace("/pluginfile.php/", "/webservice/pluginfile.php/")
@@ -245,10 +248,13 @@ fun PostDetailScreen(
                                     avatarUrl = authorAvatar,
                                     displayName = post.authorDisplayName,
                                     size = 46.dp,
-                                    showRing = true
+                                    showRing = true,
+                                    showOnlineIndicator = true,
+                                    isOnline = state.userOnlineStatus[post.authorUsername] == true,
+                                    modifier = Modifier.clickable { onNavigateToProfile(post.authorUsername) }
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Column {
+                                Column(modifier = Modifier.clickable { onNavigateToProfile(post.authorUsername) }) {
                                     Text(
                                         text = post.authorDisplayName,
                                         fontWeight = FontWeight.Bold,
@@ -263,19 +269,112 @@ fun PostDetailScreen(
 
                                 Spacer(modifier = Modifier.weight(1f))
 
-                                IconButton(onClick = viewModel::toggleLike) {
-                                    Icon(
-                                        imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                        contentDescription = "Me gusta",
-                                        tint = if (isLiked) MoodgramMagenta else MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                // Reacción actual o me gusta
+                                Box {
+                                    IconButton(
+                                        onClick = {
+                                            if (userReaction != null) {
+                                                viewModel.setReaction(userReaction)
+                                            } else {
+                                                showReactionPicker = !showReactionPicker
+                                            }
+                                        }
+                                    ) {
+                                        if (userReaction != null && userReaction != "❤️") {
+                                            Text(text = userReaction, fontSize = 20.sp)
+                                        } else {
+                                            Icon(
+                                                imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                                contentDescription = "Reacción",
+                                                tint = if (isLiked) MoodgramMagenta else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    }
                                 }
+
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .clickable { showReactionPicker = !showReactionPicker }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text(text = "➕", fontSize = 10.sp)
+                                }
+
+                                Spacer(modifier = Modifier.width(4.dp))
+
                                 Text(
-                                    text = "${post.likes.size}",
+                                    text = "${post.totalReactionsCount}",
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = if (isLiked) MoodgramMagenta else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }
+
+                            // Barra de Reacciones flotante en detalle
+                            if (showReactionPicker) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(24.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    tonalElevation = 4.dp
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        AppConfig.SUPPORTED_REACTIONS.forEach { emoji ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(36.dp)
+                                                    .clip(CircleShape)
+                                                    .clickable {
+                                                        viewModel.setReaction(emoji)
+                                                        showReactionPicker = false
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(text = emoji, fontSize = 20.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Chips de Reacciones
+                            val reactionSummary = post.getReactionSummary()
+                            if (reactionSummary.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    reactionSummary.forEach { (emoji, count) ->
+                                        Surface(
+                                            shape = RoundedCornerShape(12.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+                                            modifier = Modifier.clickable {
+                                                viewModel.setReaction(emoji)
+                                            }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(text = emoji, fontSize = 13.sp)
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    text = "$count",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
                             }
 
                             if (post.text.isNotBlank()) {
@@ -313,10 +412,10 @@ fun PostDetailScreen(
                         }
                     } else {
                         items(post.comments, key = { it.id }) { comment ->
-                            val canDeleteComment = state.currentUser != null &&
-                                    (state.currentUser!!.isAdmin ||
-                                            comment.authorUsername.equals(state.currentUser!!.username, ignoreCase = true) ||
-                                            post.authorUsername.equals(state.currentUser!!.username, ignoreCase = true))
+                            val isAuthor = comment.authorUsername.equals(state.currentUser?.username, ignoreCase = true)
+                            val isAdmin = state.currentUser?.isAdmin == true
+                            val canManageComment = state.currentUser != null && (isAdmin || isAuthor || post.authorUsername.equals(state.currentUser?.username, ignoreCase = true))
+                            val canEdit = state.currentUser != null && (isAdmin || isAuthor)
 
                             Row(
                                 modifier = Modifier
@@ -325,9 +424,12 @@ fun PostDetailScreen(
                                 verticalAlignment = Alignment.Top
                             ) {
                                 AvatarImage(
-                                    avatarUrl = state.resolvedAvatarUrls[comment.authorAvatarRef],
+                                    avatarUrl = state.resolvedAvatarUrls[comment.authorAvatarRef] ?: state.resolvedAvatarUrls[comment.authorUsername],
                                     displayName = comment.authorDisplayName,
-                                    size = 36.dp
+                                    size = 36.dp,
+                                    showOnlineIndicator = true,
+                                    isOnline = state.userOnlineStatus[comment.authorUsername] == true,
+                                    modifier = Modifier.clickable { onNavigateToProfile(comment.authorUsername) }
                                 )
 
                                 Spacer(modifier = Modifier.width(10.dp))
@@ -337,7 +439,8 @@ fun PostDetailScreen(
                                         Text(
                                             text = comment.authorDisplayName,
                                             fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp
+                                            fontSize = 13.sp,
+                                            modifier = Modifier.clickable { onNavigateToProfile(comment.authorUsername) }
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
                                         Text(
@@ -345,6 +448,14 @@ fun PostDetailScreen(
                                             fontSize = 11.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
+                                        if (comment.isEdited) {
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "(editado)",
+                                                fontSize = 10.sp,
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                            )
+                                        }
                                     }
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
@@ -354,7 +465,21 @@ fun PostDetailScreen(
                                     )
                                 }
 
-                                if (canDeleteComment) {
+                                if (canEdit) {
+                                    IconButton(
+                                        onClick = { viewModel.startEditingComment(comment.id, comment.text) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Editar comentario",
+                                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+                                }
+
+                                if (canManageComment) {
                                     IconButton(
                                         onClick = { viewModel.deleteComment(comment.id) },
                                         modifier = Modifier.size(28.dp)
@@ -372,11 +497,12 @@ fun PostDetailScreen(
                     }
                 }
 
-                // Barra inferior fija para redactar comentarios
+                // Barra inferior fija para redactar comentarios con ajuste perfecto a teclado
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
+                        .imePadding()
+                        .navigationBarsPadding(),
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 4.dp
                 ) {
@@ -436,6 +562,32 @@ fun PostDetailScreen(
                     }
                 }
             }
+        }
+
+        // Diálogo para editar comentario
+        if (state.editingCommentId != null) {
+            AlertDialog(
+                onDismissRequest = viewModel::cancelEditingComment,
+                title = { Text("Editar comentario") },
+                text = {
+                    OutlinedTextField(
+                        value = state.editingCommentText,
+                        onValueChange = viewModel::onEditingCommentTextChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 4
+                    )
+                },
+                confirmButton = {
+                    Button(onClick = viewModel::saveEditedComment) {
+                        Text("Guardar")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = viewModel::cancelEditingComment) {
+                        Text("Cancelar")
+                    }
+                }
+            )
         }
 
         SnackbarHost(

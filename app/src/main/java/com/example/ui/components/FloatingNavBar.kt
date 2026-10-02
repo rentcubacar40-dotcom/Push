@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.outlined.Chat
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Home
@@ -57,6 +59,7 @@ fun FloatingNavBar(
 ) {
     val items = mutableListOf(
         NavItem(Screen.Feed.route, Icons.Filled.Home, Icons.Outlined.Home, "Inicio", "nav_feed"),
+        NavItem(Screen.Chats.route, Icons.AutoMirrored.Filled.Chat, Icons.AutoMirrored.Outlined.Chat, "Chat", "nav_chats"),
         NavItem(Screen.CreatePost.route, Icons.Filled.AddCircle, Icons.Outlined.AddCircleOutline, "Publicar", "nav_create"),
         NavItem("profile_current", Icons.Filled.Person, Icons.Outlined.Person, "Perfil", "nav_profile")
     )

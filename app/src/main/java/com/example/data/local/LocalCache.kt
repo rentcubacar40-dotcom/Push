@@ -17,6 +17,9 @@ class LocalCache(private val context: Context) {
     private val postsFile: File
         get() = File(context.filesDir, "cached_publicaciones.json")
 
+    private val chatsFile: File
+        get() = File(context.filesDir, "cached_chats.json")
+
     suspend fun saveUsers(database: UsersDatabase) = withContext(Dispatchers.IO) {
         try {
             val json = gson.toJson(database)
@@ -57,10 +60,31 @@ class LocalCache(private val context: Context) {
         }
     }
 
+    suspend fun saveChats(database: com.example.data.model.ChatsDatabase) = withContext(Dispatchers.IO) {
+        try {
+            val json = gson.toJson(database)
+            chatsFile.writeText(json, Charsets.UTF_8)
+        } catch (_: Exception) {}
+    }
+
+    suspend fun getChats(): com.example.data.model.ChatsDatabase? = withContext(Dispatchers.IO) {
+        try {
+            if (chatsFile.exists()) {
+                val json = chatsFile.readText(Charsets.UTF_8)
+                gson.fromJson(json, com.example.data.model.ChatsDatabase::class.java)
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     suspend fun clear() = withContext(Dispatchers.IO) {
         try {
             usersFile.delete()
             postsFile.delete()
+            chatsFile.delete()
         } catch (_: Exception) {}
     }
 }

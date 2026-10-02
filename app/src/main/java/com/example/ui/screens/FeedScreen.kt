@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Refresh
@@ -79,6 +80,7 @@ fun FeedScreen(
     onNavigateToCreatePost: () -> Unit,
     onNavigateToPostDetail: (String) -> Unit,
     onNavigateToProfile: (String) -> Unit,
+    onNavigateToChats: () -> Unit,
     onScrollDirectionChanged: (Boolean) -> Unit
 ) {
     val state by viewModel.uiState.collectAsState()
@@ -130,6 +132,17 @@ fun FeedScreen(
 
                     Spacer(modifier = Modifier.weight(1f))
 
+                    IconButton(
+                        onClick = onNavigateToChats,
+                        modifier = Modifier.testTag("feed_chat_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Chat,
+                            contentDescription = "Chats y Mensajes",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+
                     if (state.isRefreshing) {
                         CircularProgressIndicator(
                             modifier = Modifier.size(22.dp),
@@ -175,7 +188,7 @@ fun FeedScreen(
                 item {
                     EmptyStateView(
                         title = "No hay publicaciones aún",
-                        subtitle = "Sé el primero en compartir una foto o un video desde Moodgram con almacenamiento en Moodle.",
+                        subtitle = "Sé el primero en compartir una foto o un video en Moodgram con toda la comunidad.",
                         buttonText = "Crear publicación",
                         onButtonClick = onNavigateToCreatePost,
                         modifier = Modifier.padding(top = 40.dp)
@@ -197,9 +210,11 @@ fun FeedScreen(
                         resolvedMediaUrl = resolvedMedia,
                         resolvedAvatarUrl = resolvedAvatar,
                         onLikeClicked = { viewModel.toggleLike(post) },
+                        onReactionSelected = { emoji -> viewModel.setReaction(post, emoji) },
                         onCommentClicked = { onNavigateToPostDetail(post.id) },
                         onAuthorClicked = { onNavigateToProfile(post.authorUsername) },
-                        onDeleteClicked = { viewModel.deletePost(post.id) }
+                        onDeleteClicked = { viewModel.deletePost(post.id) },
+                        isAuthorOnline = state.userOnlineStatus[post.authorUsername] == true
                     )
                 }
             }

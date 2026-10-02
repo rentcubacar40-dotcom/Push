@@ -152,7 +152,7 @@ class CreatePostViewModel(
                     it.copy(
                         isUploading = false,
                         uploadProgress = 0f,
-                        errorMessage = e.message ?: "Error al publicar en Moodle."
+                        errorMessage = e.message ?: "Error al publicar en la nube."
                     )
                 }
             }

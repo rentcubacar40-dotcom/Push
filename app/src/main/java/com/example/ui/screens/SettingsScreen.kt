@@ -122,10 +122,12 @@ fun SettingsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 AvatarImage(
-                                    avatarUrl = null,
+                                    avatarUrl = state.resolvedAvatarUrl.ifEmpty { user.avatarRef },
                                     displayName = user.displayName,
-                                    size = 52.dp,
-                                    showRing = true
+                                    size = 54.dp,
+                                    showRing = true,
+                                    showOnlineIndicator = true,
+                                    isOnline = true
                                 )
                                 Spacer(modifier = Modifier.width(14.dp))
                                 Column {
@@ -253,7 +255,7 @@ fun SettingsScreen(
                                         fontSize = 14.sp
                                     )
                                     Text(
-                                        text = "Libera espacio y fuerza la descarga fresca de Moodle.",
+                                        text = "Libera espacio y fuerza la descarga fresca desde la nube.",
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -300,7 +302,7 @@ fun SettingsScreen(
                             }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Red social con fotos y videos utilizando la plataforma Moodle UCF como servidor de archivos y base de datos ligera.",
+                                text = "Red social moderna para compartir tus fotos y videos favoritos, chatear con otros usuarios y conectar en el grupo oficial en tiempo real.",
                                 fontSize = 13.sp,
                                 lineHeight = 19.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant

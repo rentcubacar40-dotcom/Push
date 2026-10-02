@@ -159,10 +159,12 @@ fun ProfileScreen(
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 AvatarImage(
-                                    avatarUrl = state.resolvedAvatarUrl,
+                                    avatarUrl = state.resolvedAvatarUrl.ifEmpty { user.avatarRef },
                                     displayName = user.displayName,
                                     size = 84.dp,
-                                    showRing = true
+                                    showRing = true,
+                                    showOnlineIndicator = true,
+                                    isOnline = user.isOnline
                                 )
 
                                 Spacer(modifier = Modifier.height(12.dp))
@@ -207,6 +209,26 @@ fun ProfileScreen(
                                     color = MaterialTheme.colorScheme.primary,
                                     fontWeight = FontWeight.Medium
                                 )
+
+                                Spacer(modifier = Modifier.height(4.dp))
+
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(
+                                                if (user.isOnline) Color(0xFF10B981) else Color(0xFF9CA3AF),
+                                                CircleShape
+                                            )
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = user.getLastSeenText(),
+                                        fontSize = 12.sp,
+                                        color = if (user.isOnline) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = if (user.isOnline) FontWeight.SemiBold else FontWeight.Normal
+                                    )
+                                }
 
                                 Spacer(modifier = Modifier.height(16.dp))
 

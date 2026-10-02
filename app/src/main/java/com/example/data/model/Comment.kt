@@ -6,5 +6,7 @@ data class Comment(
     val authorDisplayName: String,
     val authorAvatarRef: String = "",
     val text: String,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val isEdited: Boolean = false,
+    val editedAt: Long = 0L
 )
