@@ -52,18 +52,34 @@ class PostDetailViewModel(
                 val targetPost = db.posts.firstOrNull { it.id == postId }
                 if (targetPost != null) {
                     val mediaUrl = repository.resolveMediaUrl(targetPost.fileRef.ifEmpty { targetPost.mediaUrl })
-                    val avatarUrl = if (targetPost.authorAvatarRef.isNotEmpty()) {
-                        repository.resolveMediaUrl(targetPost.authorAvatarRef)
-                    } else ""
+                    val usersDb = try { repository.getUsersDatabase(forceRemote = false) } catch (_: Exception) { null }
+                    val userMap = usersDb?.users?.associateBy { it.username.lowercase() } ?: emptyMap()
+
+                    val authorAvatarRef = if (targetPost.authorAvatarRef.isNotEmpty()) {
+                        targetPost.authorAvatarRef
+                    } else {
+                        userMap[targetPost.authorUsername.lowercase()]?.avatarRef ?: ""
+                    }
 
                     val avatarMap = mutableMapOf<String, String>()
-                    if (avatarUrl.isNotEmpty()) {
+                    if (authorAvatarRef.isNotEmpty()) {
+                        val avatarUrl = repository.resolveMediaUrl(authorAvatarRef)
                         avatarMap[targetPost.authorAvatarRef] = avatarUrl
+                        avatarMap[targetPost.authorUsername] = avatarUrl
+                        avatarMap[authorAvatarRef] = avatarUrl
                     }
 
                     targetPost.comments.forEach { c ->
-                        if (c.authorAvatarRef.isNotEmpty() && !avatarMap.containsKey(c.authorAvatarRef)) {
-                            avatarMap[c.authorAvatarRef] = repository.resolveMediaUrl(c.authorAvatarRef)
+                        val cAvatarRef = if (c.authorAvatarRef.isNotEmpty()) {
+                            c.authorAvatarRef
+                        } else {
+                            userMap[c.authorUsername.lowercase()]?.avatarRef ?: ""
+                        }
+                        if (cAvatarRef.isNotEmpty()) {
+                            val cUrl = repository.resolveMediaUrl(cAvatarRef)
+                            avatarMap[c.authorAvatarRef] = cUrl
+                            avatarMap[c.authorUsername] = cUrl
+                            avatarMap[cAvatarRef] = cUrl
                         }
                     }
 

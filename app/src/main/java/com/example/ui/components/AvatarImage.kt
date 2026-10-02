@@ -8,6 +8,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -53,19 +57,53 @@ fun AvatarImage(
             .clip(CircleShape)
     }
 
+    val token = "ddd9b89ebd8115d4a9c1eaae298afde9"
+    val cleanUrl = remember(avatarUrl) {
+        if (avatarUrl.isNullOrBlank()) {
+            null
+        } else if (avatarUrl.startsWith("http://") || avatarUrl.startsWith("https://")) {
+            var url = avatarUrl
+            if (url.contains("/pluginfile.php/1/")) {
+                url = url.replace("/pluginfile.php/1/", "/pluginfile.php/${com.example.config.AppConfig.DEFAULT_CONTEXT_ID}/")
+            }
+            if (url.contains("/pluginfile.php/") && !url.contains("/webservice/pluginfile.php/")) {
+                url = url.replace("/pluginfile.php/", "/webservice/pluginfile.php/")
+            }
+            if (!url.contains("token=")) {
+                val sep = if (url.contains("?")) "&" else "?"
+                "$url${sep}token=$token"
+            } else {
+                url
+            }
+        } else {
+            // Filename format
+            val clean = avatarUrl.trimStart('/')
+            if (clean.contains("Eliel_21")) {
+                "https://cursos.ucf.edu.cu/webservice/pluginfile.php/${com.example.config.AppConfig.DEFAULT_CONTEXT_ID}/core_competency/userevidence/852/$clean?token=$token"
+            } else {
+                "https://cursos.ucf.edu.cu/webservice/pluginfile.php/${com.example.config.AppConfig.DEFAULT_CONTEXT_ID}/user/private/$clean?token=$token"
+            }
+        }
+    }
+
+    var hasError by androidx.compose.runtime.remember(cleanUrl) {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+
     Box(
         modifier = ringModifier,
         contentAlignment = Alignment.Center
     ) {
-        if (!avatarUrl.isNullOrBlank()) {
+        if (!cleanUrl.isNullOrBlank() && !hasError) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
-                    .data(avatarUrl)
+                    .data(cleanUrl)
                     .crossfade(true)
                     .build(),
                 contentDescription = "Avatar de $displayName",
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.size(size)
+                modifier = Modifier.size(size),
+                onError = { hasError = true }
             )
         } else {
             Box(

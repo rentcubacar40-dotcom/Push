@@ -42,6 +42,11 @@ import com.example.viewmodel.PostDetailViewModel
 import com.example.viewmodel.ProfileViewModel
 import com.example.viewmodel.SettingsViewModel
 
+import coil.Coil
+import coil.ImageLoader
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,6 +54,24 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         val repository = MoodgramRepository(applicationContext)
+
+        // Configurar Coil globalmente para utilizar el cliente HTTP configurado para Moodle
+        val imageLoader = ImageLoader.Builder(applicationContext)
+            .okHttpClient(repository.moodleApi.client)
+            .crossfade(true)
+            .memoryCache {
+                MemoryCache.Builder(applicationContext)
+                    .maxSizePercent(0.25)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(applicationContext.cacheDir.resolve("moodle_images"))
+                    .maxSizeBytes(50L * 1024 * 1024)
+                    .build()
+            }
+            .build()
+        Coil.setImageLoader(imageLoader)
 
         setContent {
             val themeMode by repository.sessionManager.themeModeFlow.collectAsState(initial = "SYSTEM")

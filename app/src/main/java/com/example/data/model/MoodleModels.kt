@@ -52,7 +52,32 @@ data class RemoteFileItem(
     @SerializedName("filepath") val filepath: String? = null,
     @SerializedName("filesize") val filesize: Long? = null,
     @SerializedName("fileurl") val fileurl: String? = null,
+    @SerializedName("url") val url: String? = null,
+    @SerializedName("contextid") val contextid: Long? = null,
+    @SerializedName("itemid") val itemid: Long? = null,
     @SerializedName("timemodified") val timemodified: Long? = null,
+    @SerializedName("timecreated") val timecreated: Long? = null,
     @SerializedName("mimetype") val mimetype: String? = null,
     @SerializedName("author") val author: String? = null
+) {
+    val effectiveUrl: String?
+        get() = if (!url.isNullOrEmpty()) url else fileurl
+}
+
+data class UserEvidenceListPageResponse(
+    @SerializedName("evidence") val evidence: List<UserEvidenceItem>? = null,
+    @SerializedName("canmanage") val canmanage: Boolean? = null
+)
+
+data class UserEvidenceItem(
+    @SerializedName("id") val id: Long? = null,
+    @SerializedName("name") val name: String? = null,
+    @SerializedName("description") val description: String? = null,
+    @SerializedName("files") val files: List<RemoteFileItem>? = null
+)
+
+data class EvidenceUploadResult(
+    val evidenceId: Long,
+    val filename: String,
+    val directUrl: String
 )

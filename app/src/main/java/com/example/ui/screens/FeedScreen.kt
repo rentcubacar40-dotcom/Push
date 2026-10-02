@@ -97,15 +97,75 @@ fun FeedScreen(
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
+    androidx.compose.material3.Scaffold(
+        topBar = {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(elevation = 2.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CameraAlt,
+                        contentDescription = null,
+                        tint = MoodgramViolet,
+                        modifier = Modifier.size(28.dp)
+                    )
+
+                    Text(
+                        text = "Moodgram",
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        letterSpacing = 0.5.sp,
+                        modifier = Modifier.padding(start = 10.dp)
+                    )
+
+                    Spacer(modifier = Modifier.weight(1f))
+
+                    if (state.isRefreshing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(22.dp),
+                            strokeWidth = 2.dp,
+                            color = MoodgramMagenta
+                        )
+                    } else {
+                        IconButton(
+                            onClick = viewModel::refresh,
+                            modifier = Modifier.testTag("feed_refresh_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Actualizar feed",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
+        containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.padding(bottom = 80.dp, start = 16.dp, end = 16.dp)
+            )
+        }
+    ) { innerPadding ->
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = 70.dp, bottom = 100.dp)
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = innerPadding.calculateTopPadding()),
+            contentPadding = PaddingValues(top = 10.dp, bottom = 110.dp)
         ) {
             if (state.isLoading && state.posts.isEmpty()) {
                 items(3) {
@@ -127,7 +187,9 @@ fun FeedScreen(
                     key = { it.id }
                 ) { post ->
                     val resolvedMedia = state.resolvedMediaUrls[post.id] ?: post.mediaUrl
-                    val resolvedAvatar = state.resolvedAvatarUrls[post.authorAvatarRef] ?: ""
+                    val resolvedAvatar = state.resolvedAvatarUrls[post.authorAvatarRef]
+                        ?: state.resolvedAvatarUrls[post.authorUsername]
+                        ?: ""
 
                     PostCard(
                         post = post,
@@ -142,65 +204,5 @@ fun FeedScreen(
                 }
             }
         }
-
-        // Top App Bar translúcida con efecto de vidrio
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .shadow(elevation = 3.dp),
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.CameraAlt,
-                    contentDescription = null,
-                    tint = MoodgramViolet,
-                    modifier = Modifier.size(28.dp)
-                )
-
-                Text(
-                    text = "Moodgram",
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    letterSpacing = 0.5.sp,
-                    modifier = Modifier.padding(start = 10.dp)
-                )
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                if (state.isRefreshing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        strokeWidth = 2.dp,
-                        color = MoodgramMagenta
-                    )
-                } else {
-                    IconButton(
-                        onClick = viewModel::refresh,
-                        modifier = Modifier.testTag("feed_refresh_button")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Refresh,
-                            contentDescription = "Actualizar feed",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        SnackbarHost(
-            hostState = snackbarHostState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 80.dp, start = 16.dp, end = 16.dp)
-        )
     }
 }

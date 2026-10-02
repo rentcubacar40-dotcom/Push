@@ -125,8 +125,8 @@ object MediaUtils {
     fun formatFileSize(bytes: Long): String {
         if (bytes <= 0) return "0 MB"
         val mb = bytes.toDouble() / (1024.0 * 1024.0)
-        return if (mb >= 0.1) {
-            "%.1f MB".format(mb)
+        return if (mb >= 1.0) {
+            String.format(java.util.Locale.US, "%.1f MB", mb)
         } else {
             val kb = bytes / 1024
             "$kb KB"

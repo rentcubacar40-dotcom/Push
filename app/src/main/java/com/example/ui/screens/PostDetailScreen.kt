@@ -7,20 +7,25 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -55,8 +60,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -89,13 +98,22 @@ fun PostDetailScreen(
         }
     }
 
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+
+    val submitCommentAction: () -> Unit = {
+        if (state.newCommentText.isNotBlank() && !state.isSubmittingComment) {
+            keyboardController?.hide()
+            focusManager.clearFocus()
+            viewModel.addComment()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
             .statusBarsPadding()
-            .navigationBarsPadding()
-            .imePadding()
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Barra Superior
@@ -168,6 +186,24 @@ fun PostDetailScreen(
                 ) {
                     // Contenido Multimedia Principal
                     item {
+                        val token = "ddd9b89ebd8115d4a9c1eaae298afde9"
+                        val rawMedia = state.resolvedMediaUrl.ifEmpty { post.mediaUrl }
+                        val sanitizedMedia = remember(rawMedia) {
+                            var url = rawMedia
+                            if (url.contains("/pluginfile.php/1/")) {
+                                url = url.replace("/pluginfile.php/1/", "/pluginfile.php/${com.example.config.AppConfig.DEFAULT_CONTEXT_ID}/")
+                            }
+                            if (url.contains("/pluginfile.php/") && !url.contains("/webservice/pluginfile.php/")) {
+                                url = url.replace("/pluginfile.php/", "/webservice/pluginfile.php/")
+                            }
+                            if (url.startsWith("http") && !url.contains("token=")) {
+                                val sep = if (url.contains("?")) "&" else "?"
+                                "$url${sep}token=$token"
+                            } else {
+                                url
+                            }
+                        }
+
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -177,7 +213,7 @@ fun PostDetailScreen(
                         ) {
                             if (post.isVideo) {
                                 VideoPlayerView(
-                                    videoUrl = state.resolvedMediaUrl.ifEmpty { post.mediaUrl },
+                                    videoUrl = sanitizedMedia,
                                     modifier = Modifier.fillMaxSize(),
                                     autoPlay = true,
                                     initiallyMuted = false
@@ -185,7 +221,7 @@ fun PostDetailScreen(
                             } else {
                                 AsyncImage(
                                     model = ImageRequest.Builder(LocalContext.current)
-                                        .data(state.resolvedMediaUrl.ifEmpty { post.mediaUrl })
+                                        .data(sanitizedMedia)
                                         .crossfade(true)
                                         .build(),
                                     contentDescription = "Foto completa",
@@ -203,8 +239,10 @@ fun PostDetailScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
+                                val authorAvatar = state.resolvedAvatarUrls[post.authorAvatarRef]
+                                    ?: state.resolvedAvatarUrls[post.authorUsername]
                                 AvatarImage(
-                                    avatarUrl = state.resolvedAvatarUrls[post.authorAvatarRef],
+                                    avatarUrl = authorAvatar,
                                     displayName = post.authorDisplayName,
                                     size = 46.dp,
                                     showRing = true
@@ -336,7 +374,9 @@ fun PostDetailScreen(
 
                 // Barra inferior fija para redactar comentarios
                 Surface(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.ime.union(WindowInsets.navigationBars)),
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 4.dp
                 ) {
@@ -358,13 +398,20 @@ fun PostDetailScreen(
                                 focusedBorderColor = MaterialTheme.colorScheme.primary,
                                 unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
                             ),
-                            maxLines = 3
+                            maxLines = 3,
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.Sentences,
+                                imeAction = ImeAction.Send
+                            ),
+                            keyboardActions = KeyboardActions(
+                                onSend = { submitCommentAction() }
+                            )
                         )
 
                         Spacer(modifier = Modifier.width(8.dp))
 
                         IconButton(
-                            onClick = viewModel::addComment,
+                            onClick = submitCommentAction,
                             enabled = state.newCommentText.isNotBlank() && !state.isSubmittingComment,
                             modifier = Modifier
                                 .size(44.dp)

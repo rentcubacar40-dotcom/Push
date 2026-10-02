@@ -12,7 +12,9 @@ object AppConfig {
     const val ADMIN_USERNAME = "@Eliel_21"
     const val ADMIN_PASSWORD = "ElielElielAdmin543345.."
 
-    // Constantes de archivos JSON en las evidencias de Moodle
+    // Parámetros de servicio y almacenamiento de Moodle (Evidencias de aprendizaje / userevidence)
+    const val DEFAULT_CONTEXT_ID = 44640L
+    const val DEFAULT_USER_ID = 2886L
     const val USERS_FILE_PREFIX = "moodgram_usuarios"
     const val POSTS_FILE_PREFIX = "moodgram_publicaciones"
     const val USERS_DEFAULT_FILE = "moodgram_usuarios.json"

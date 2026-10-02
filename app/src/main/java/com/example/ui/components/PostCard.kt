@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -18,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.BrokenImage
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -82,6 +85,30 @@ fun PostCard(
         label = "likeBounce"
     )
 
+    val token = "ddd9b89ebd8115d4a9c1eaae298afde9"
+    val rawMediaUrl = resolvedMediaUrl.ifEmpty { post.mediaUrl }
+    val finalMediaUrl = remember(rawMediaUrl) {
+        var url = rawMediaUrl
+        if (url.contains("/pluginfile.php/1/")) {
+            url = url.replace("/pluginfile.php/1/", "/pluginfile.php/${com.example.config.AppConfig.DEFAULT_CONTEXT_ID}/")
+        }
+        if (url.contains("/pluginfile.php/") && !url.contains("/webservice/pluginfile.php/")) {
+            url = url.replace("/pluginfile.php/", "/webservice/pluginfile.php/")
+        }
+        if (url.startsWith("http") && !url.contains("token=")) {
+            val sep = if (url.contains("?")) "&" else "?"
+            "$url${sep}token=$token"
+        } else {
+            url
+        }
+    }
+
+    val finalAvatarUrl = if (resolvedAvatarUrl.contains("/pluginfile.php/1/")) {
+        resolvedAvatarUrl.replace("/pluginfile.php/1/", "/pluginfile.php/${com.example.config.AppConfig.DEFAULT_CONTEXT_ID}/")
+    } else {
+        resolvedAvatarUrl
+    }
+
     Card(
         modifier = modifier
             .fillMaxWidth()
@@ -100,7 +127,7 @@ fun PostCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 AvatarImage(
-                    avatarUrl = resolvedAvatarUrl,
+                    avatarUrl = finalAvatarUrl,
                     displayName = post.authorDisplayName,
                     size = 44.dp,
                     showRing = true,
@@ -196,20 +223,52 @@ fun PostCard(
             ) {
                 if (post.isVideo) {
                     VideoPlayerView(
-                        videoUrl = resolvedMediaUrl.ifEmpty { post.mediaUrl },
-                        modifier = Modifier.clip(RoundedCornerShape(20.dp))
+                        videoUrl = finalMediaUrl,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(20.dp))
                     )
                 } else {
-                    AsyncImage(
+                    coil.compose.SubcomposeAsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
-                            .data(resolvedMediaUrl.ifEmpty { post.mediaUrl })
+                            .data(finalMediaUrl)
                             .crossfade(true)
                             .build(),
                         contentDescription = "Imagen de la publicación",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(20.dp))
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(20.dp)),
+                        loading = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(rememberShimmerBrush())
+                            )
+                        },
+                        error = {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Default.BrokenImage,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Error al cargar multimedia",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
                     )
                 }
 

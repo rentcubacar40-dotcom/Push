@@ -93,15 +93,19 @@ class MoodgramRepository(
         }
 
         try {
-            val files = moodleApi.listPrivateFiles()
+            var files = moodleApi.listEvidenceFiles()
+            if (files.none { it.filename?.startsWith(AppConfig.USERS_FILE_PREFIX) == true }) {
+                files = files + moodleApi.listPrivateFiles()
+            }
             val userFiles = files.filter {
                 val name = it.filename ?: ""
                 name.startsWith(AppConfig.USERS_FILE_PREFIX) && name.endsWith(".json")
             }.sortedByDescending { it.timemodified ?: 0L }
 
             val newestFile = userFiles.firstOrNull()
-            if (newestFile?.fileurl != null) {
-                val json = moodleApi.downloadText(newestFile.fileurl)
+            val fileUrl = newestFile?.effectiveUrl
+            if (fileUrl != null) {
+                val json = moodleApi.downloadText(fileUrl)
                 val db = try {
                     gson.fromJson(json, UsersDatabase::class.java)
                 } catch (_: Exception) {
@@ -113,7 +117,7 @@ class MoodgramRepository(
                 }
             }
         } catch (e: Exception) {
-            Log.w(tag, "No se pudo descargar usuarios de Moodle, usando caché o plantilla inicial", e)
+            Log.w(tag, "No se pudo descargar usuarios de Moodle evidencias, usando caché o plantilla inicial", e)
         }
 
         // Fallback a caché o base inicial
@@ -143,15 +147,13 @@ class MoodgramRepository(
             val bytes = json.toByteArray(Charsets.UTF_8)
             val filename = "${AppConfig.USERS_FILE_PREFIX}_${System.currentTimeMillis()}.json"
 
-            val uploadItem = moodleApi.uploadFileToDraft(
+            moodleApi.uploadToUserEvidence(
                 filename = filename,
                 mimeType = "application/json",
-                bytes = bytes
+                bytes = bytes,
+                evidenceTitle = "Moodgram Usuarios DB"
             )
-            uploadItem.itemid?.let { draftId ->
-                moodleApi.saveDraftToPrivateFiles(draftId)
-            }
-            Log.d(tag, "Base de datos de usuarios guardada en Moodle con éxito ($filename)")
+            Log.d(tag, "Base de datos de usuarios guardada en Evidencias de Moodle con éxito ($filename)")
         } catch (e: Exception) {
             Log.e(tag, "Fallo al guardar usuarios en evidencias de Moodle", e)
         }
@@ -172,27 +174,43 @@ class MoodgramRepository(
         }
 
         try {
-            val files = moodleApi.listPrivateFiles()
+            var files = moodleApi.listEvidenceFiles()
+            if (files.none { it.filename?.startsWith(AppConfig.POSTS_FILE_PREFIX) == true }) {
+                files = files + moodleApi.listPrivateFiles()
+            }
             val postFiles = files.filter {
                 val name = it.filename ?: ""
                 name.startsWith(AppConfig.POSTS_FILE_PREFIX) && name.endsWith(".json")
             }.sortedByDescending { it.timemodified ?: 0L }
 
             val newestFile = postFiles.firstOrNull()
-            if (newestFile?.fileurl != null) {
-                val json = moodleApi.downloadText(newestFile.fileurl)
+            val fileUrl = newestFile?.effectiveUrl
+            if (fileUrl != null) {
+                val json = moodleApi.downloadText(fileUrl)
                 val db = try {
                     gson.fromJson(json, PostsDatabase::class.java)
                 } catch (_: Exception) {
                     null
                 }
                 if (db != null) {
-                    localCache.savePosts(db)
-                    return db
+                    // Sanear cualquier URL guardada previamente con contextid = 1 o ruta sin webservice
+                    val sanitizedPosts = db.posts.map { post ->
+                        var url = post.mediaUrl
+                        if (url.contains("/pluginfile.php/1/")) {
+                            url = url.replace("/pluginfile.php/1/", "/pluginfile.php/${AppConfig.DEFAULT_CONTEXT_ID}/")
+                        }
+                        if (url.contains("/pluginfile.php/") && !url.contains("/webservice/pluginfile.php/")) {
+                            url = url.replace("/pluginfile.php/", "/webservice/pluginfile.php/")
+                        }
+                        post.copy(mediaUrl = url)
+                    }
+                    val sanitizedDb = db.copy(posts = sanitizedPosts)
+                    localCache.savePosts(sanitizedDb)
+                    return sanitizedDb
                 }
             }
         } catch (e: Exception) {
-            Log.w(tag, "No se pudo descargar publicaciones de Moodle, usando caché", e)
+            Log.w(tag, "No se pudo descargar publicaciones de Moodle evidencias, usando caché", e)
         }
 
         val cached = localCache.getPosts()
@@ -210,15 +228,13 @@ class MoodgramRepository(
             val bytes = json.toByteArray(Charsets.UTF_8)
             val filename = "${AppConfig.POSTS_FILE_PREFIX}_${System.currentTimeMillis()}.json"
 
-            val uploadItem = moodleApi.uploadFileToDraft(
+            moodleApi.uploadToUserEvidence(
                 filename = filename,
                 mimeType = "application/json",
-                bytes = bytes
+                bytes = bytes,
+                evidenceTitle = "Moodgram Publicaciones DB"
             )
-            uploadItem.itemid?.let { draftId ->
-                moodleApi.saveDraftToPrivateFiles(draftId)
-            }
-            Log.d(tag, "Base de datos de publicaciones guardada en Moodle ($filename)")
+            Log.d(tag, "Base de datos de publicaciones guardada en Evidencias de Moodle ($filename)")
         } catch (e: Exception) {
             Log.e(tag, "Fallo al guardar publicaciones en evidencias de Moodle", e)
         }
@@ -235,11 +251,16 @@ class MoodgramRepository(
             password == AppConfig.ADMIN_PASSWORD
         ) {
             ensureAdminSeeded()
+            val usersDb = getUsersDatabase(forceRemote = false)
+            val adminInDb = usersDb.users.firstOrNull {
+                it.username.equals(AppConfig.ADMIN_USERNAME, ignoreCase = true)
+            }
             val adminUser = User(
                 username = AppConfig.ADMIN_USERNAME,
-                displayName = "Eliel (Admin)",
-                passwordHash = "",
-                salt = "",
+                displayName = adminInDb?.displayName ?: "Eliel (Admin)",
+                passwordHash = adminInDb?.passwordHash ?: "",
+                salt = adminInDb?.salt ?: "",
+                avatarRef = adminInDb?.avatarRef ?: "",
                 role = "admin",
                 isBanned = false
             )
@@ -300,17 +321,15 @@ class MoodgramRepository(
             if (avatarBytes != null && avatarBytes.isNotEmpty()) {
                 try {
                     val avatarFilename = "avatar_${cleanUsername.removePrefix("@")}_${System.currentTimeMillis()}.jpg"
-                    val uploadItem = moodleApi.uploadFileToDraft(
+                    val uploadResult = moodleApi.uploadToUserEvidence(
                         filename = avatarFilename,
                         mimeType = "image/jpeg",
-                        bytes = avatarBytes
+                        bytes = avatarBytes,
+                        evidenceTitle = "Moodgram Avatar $cleanUsername"
                     )
-                    uploadItem.itemid?.let { draftId ->
-                        moodleApi.saveDraftToPrivateFiles(draftId)
-                    }
-                    avatarRef = avatarFilename
+                    avatarRef = uploadResult.directUrl
                 } catch (e: Exception) {
-                    Log.w(tag, "No se pudo subir foto de perfil, continuando sin avatar", e)
+                    Log.w(tag, "No se pudo subir foto de perfil a evidencias, continuando sin avatar", e)
                 }
             }
 
@@ -357,20 +376,17 @@ class MoodgramRepository(
             throw IOException("El archivo excede el límite máximo de ${AppConfig.MAX_FILE_MB} MB.")
         }
 
-        // Subir archivo a borrador y luego a evidencias
+        // Subir archivo multimedia directamente a Evidencias de Moodle
         val uniqueFilename = "post_${System.currentTimeMillis()}_${filename.replace(" ", "_")}"
-        val uploadItem = moodleApi.uploadFileToDraft(
+        val uploadResult = moodleApi.uploadToUserEvidence(
             filename = uniqueFilename,
             mimeType = mimeType,
             bytes = mediaBytes,
+            evidenceTitle = "Moodgram Post $uniqueFilename",
             onProgress = onProgress
         )
 
-        val draftId = uploadItem.itemid ?: throw IOException("Moodle no retornó identificador de borrador.")
-        moodleApi.saveDraftToPrivateFiles(draftId)
-
-        // Construir URL con token
-        val resolvedUrl = moodleApi.buildPluginFileUrl(uniqueFilename)
+        val resolvedUrl = uploadResult.directUrl
 
         val newPost = Post(
             id = UUID.randomUUID().toString(),
@@ -560,9 +576,13 @@ class MoodgramRepository(
             if (newAvatarBytes != null && newAvatarBytes.isNotEmpty()) {
                 val cleanUser = username.removePrefix("@")
                 val filename = "avatar_${cleanUser}_${System.currentTimeMillis()}.jpg"
-                val item = moodleApi.uploadFileToDraft(filename, "image/jpeg", newAvatarBytes)
-                item.itemid?.let { moodleApi.saveDraftToPrivateFiles(it) }
-                newAvatarRef = filename
+                val uploadResult = moodleApi.uploadToUserEvidence(
+                    filename = filename,
+                    mimeType = "image/jpeg",
+                    bytes = newAvatarBytes,
+                    evidenceTitle = "Moodgram Avatar $cleanUser"
+                )
+                newAvatarRef = uploadResult.directUrl
             }
 
             var updatedUser: User? = null

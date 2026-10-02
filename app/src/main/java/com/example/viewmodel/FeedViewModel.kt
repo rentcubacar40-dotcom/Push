@@ -86,18 +86,36 @@ class FeedViewModel(
     }
 
     private suspend fun resolveUrlsForPosts(posts: List<Post>) {
-        val currentMedia = _uiState.value.resolvedMediaUrls.toMutableMap()
-        val currentAvatars = _uiState.value.resolvedAvatarUrls.toMutableMap()
+        val currentMedia = mutableMapOf<String, String>()
+        val currentAvatars = mutableMapOf<String, String>()
+
+        val usersDb = try {
+            repository.getUsersDatabase(forceRemote = false)
+        } catch (_: Exception) {
+            null
+        }
+        val userMap = usersDb?.users?.associateBy { it.username.lowercase() } ?: emptyMap()
 
         posts.forEach { post ->
-            if (!currentMedia.containsKey(post.id) && (post.fileRef.isNotEmpty() || post.mediaUrl.isNotEmpty())) {
-                val ref = post.fileRef.ifEmpty { post.mediaUrl }
+            val ref = post.fileRef.ifEmpty { post.mediaUrl }
+            if (ref.isNotEmpty()) {
                 val url = repository.resolveMediaUrl(ref)
                 currentMedia[post.id] = url
             }
-            if (post.authorAvatarRef.isNotEmpty() && !currentAvatars.containsKey(post.authorAvatarRef)) {
-                val url = repository.resolveMediaUrl(post.authorAvatarRef)
-                currentAvatars[post.authorAvatarRef] = url
+
+            val avatarRef = if (post.authorAvatarRef.isNotEmpty()) {
+                post.authorAvatarRef
+            } else {
+                userMap[post.authorUsername.lowercase()]?.avatarRef ?: ""
+            }
+
+            if (avatarRef.isNotEmpty()) {
+                val url = repository.resolveMediaUrl(avatarRef)
+                currentAvatars[avatarRef] = url
+                currentAvatars[post.authorUsername] = url
+                if (post.authorAvatarRef.isNotEmpty()) {
+                    currentAvatars[post.authorAvatarRef] = url
+                }
             }
         }
 
