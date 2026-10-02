@@ -283,14 +283,7 @@ fun AuthScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Text(
-                            text = "💡 Consejo: El administrador accede con @Eliel_21",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
+                        Spacer(modifier = Modifier.height(8.dp))
                     } else {
                         // === FORMULARIO DE REGISTRO ===
                         // Selector de Avatar

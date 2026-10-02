@@ -81,22 +81,24 @@ class ChatViewModel(
         }
     }
 
+    private var currentChatIdToOpen: String? = null
+
     private fun startRealtimePolling() {
         viewModelScope.launch {
             while (isActive) {
-                delay(3000)
+                delay(4500)
                 try {
                     val session = _uiState.value.currentUser
                     if (session != null) {
                         repository.updateHeartbeat(session.username)
                     }
                     val chatsDb = repository.getChatsDatabase(forceRemote = false)
-                    val activeId = _uiState.value.activeChat?.id
+                    val targetId = currentChatIdToOpen ?: _uiState.value.activeChat?.id
 
-                    val updatedActive = when (activeId) {
+                    val updatedActive = when (targetId) {
                         null -> null
                         AppConfig.OFFICIAL_GROUP_ID -> chatsDb.officialGroup
-                        else -> chatsDb.directChats.firstOrNull { it.id == activeId }
+                        else -> chatsDb.directChats.firstOrNull { it.id == targetId }
                     }
 
                     _uiState.update {
@@ -116,10 +118,18 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 val chatsDb = repository.getChatsDatabase(forceRemote = false)
+                val targetId = currentChatIdToOpen ?: _uiState.value.activeChat?.id
+                val active = when (targetId) {
+                    null -> null
+                    AppConfig.OFFICIAL_GROUP_ID -> chatsDb.officialGroup
+                    else -> chatsDb.directChats.firstOrNull { it.id == targetId }
+                }
+
                 _uiState.update {
                     it.copy(
                         officialGroup = chatsDb.officialGroup,
                         directChats = chatsDb.directChats,
+                        activeChat = active ?: it.activeChat,
                         isLoading = false
                     )
                 }
@@ -170,29 +180,38 @@ class ChatViewModel(
     }
 
     fun openChat(chatId: String) {
-        val active = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
-            _uiState.value.officialGroup
-        } else {
-            _uiState.value.directChats.firstOrNull { it.id == chatId }
-        }
-        _uiState.update {
-            it.copy(
-                activeChat = active,
-                messageInputText = "",
-                replyingToMessage = null,
-                selectedMediaUri = null,
-                selectedMediaBytes = null,
-                selectedMediaType = ""
-            )
-        }
+        currentChatIdToOpen = chatId
+        viewModelScope.launch {
+            try {
+                // 1. Cargar base de datos local o remota inmediatamente
+                val chatsDb = repository.getChatsDatabase(forceRemote = false)
+                val active = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
+                    chatsDb.officialGroup
+                } else {
+                    chatsDb.directChats.firstOrNull { it.id == chatId }
+                }
 
-        // Marcar mensajes como leídos
-        val user = _uiState.value.currentUser
-        if (user != null) {
-            viewModelScope.launch {
-                try {
+                _uiState.update {
+                    it.copy(
+                        officialGroup = chatsDb.officialGroup,
+                        directChats = chatsDb.directChats,
+                        activeChat = active,
+                        messageInputText = "",
+                        replyingToMessage = null,
+                        selectedMediaUri = null,
+                        selectedMediaBytes = null,
+                        selectedMediaType = ""
+                    )
+                }
+                resolveUsersAndAvatars()
+
+                // 2. Marcar mensajes como leídos
+                val user = _uiState.value.currentUser
+                if (user != null) {
                     repository.markMessagesAsRead(chatId, user.username)
-                } catch (_: Exception) {}
+                }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(errorMessage = e.message) }
             }
         }
     }
@@ -566,6 +585,7 @@ class ChatViewModel(
     }
 
     fun closeActiveChat() {
+        currentChatIdToOpen = null
         _uiState.update {
             it.copy(
                 activeChat = null,

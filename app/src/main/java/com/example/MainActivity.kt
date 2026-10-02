@@ -31,6 +31,7 @@ import com.example.ui.screens.ChatListScreen
 import com.example.ui.screens.ChatScreen
 import com.example.ui.screens.CreatePostScreen
 import com.example.ui.screens.FeedScreen
+import com.example.ui.screens.MainPagerScreen
 import com.example.ui.screens.PostDetailScreen
 import com.example.ui.screens.ProfileScreen
 import com.example.ui.screens.SettingsScreen
@@ -95,189 +96,119 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MoodgramApp(repository: MoodgramRepository) {
     val navController = rememberNavController()
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route ?: Screen.Splash.route
 
-    val currentSession by repository.sessionManager.userSessionFlow.collectAsState(initial = null)
-    var isNavBarVisible by remember { mutableStateOf(true) }
-
-    val shouldShowNavBar = currentSession != null &&
-            currentRoute != Screen.Splash.route &&
-            currentRoute != Screen.Auth.route &&
-            currentRoute != Screen.CreatePost.route &&
-            !currentRoute.startsWith("post_detail") &&
-            !currentRoute.startsWith("chat_detail")
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        NavHost(
-            navController = navController,
-            startDestination = Screen.Splash.route,
-            modifier = Modifier.fillMaxSize()
-        ) {
-            composable(Screen.Splash.route) {
-                SplashScreen(
-                    repository = repository,
-                    sessionManager = repository.sessionManager,
-                    onNavigateToFeed = {
-                        navController.navigate(Screen.Feed.route) {
-                            popUpTo(Screen.Splash.route) { inclusive = true }
-                        }
-                    },
-                    onNavigateToAuth = {
-                        navController.navigate(Screen.Auth.route) {
-                            popUpTo(Screen.Splash.route) { inclusive = true }
-                        }
-                    }
-                )
-            }
-
-            composable(Screen.Auth.route) {
-                val authViewModel = remember { AuthViewModel(repository) }
-                AuthScreen(
-                    viewModel = authViewModel,
-                    onAuthSuccess = {
-                        navController.navigate(Screen.Feed.route) {
-                            popUpTo(Screen.Auth.route) { inclusive = true }
-                        }
-                    }
-                )
-            }
-
-            composable(Screen.Feed.route) {
-                val feedViewModel = remember { FeedViewModel(repository) }
-                FeedScreen(
-                    viewModel = feedViewModel,
-                    onNavigateToCreatePost = {
-                        navController.navigate(Screen.CreatePost.route)
-                    },
-                    onNavigateToPostDetail = { postId ->
-                        navController.navigate(Screen.PostDetail.createRoute(postId))
-                    },
-                    onNavigateToProfile = { username ->
-                        navController.navigate(Screen.Profile.createRoute(username))
-                    },
-                    onNavigateToChats = {
-                        navController.navigate(Screen.Chats.route)
-                    },
-                    onScrollDirectionChanged = { isScrollingUp ->
-                        isNavBarVisible = isScrollingUp
-                    }
-                )
-            }
-
-            composable(Screen.Chats.route) {
-                val chatViewModel = remember { ChatViewModel(repository) }
-                ChatListScreen(
-                    viewModel = chatViewModel,
-                    onNavigateToChat = { chatId ->
-                        navController.navigate(Screen.ChatDetail.createRoute(chatId))
-                    }
-                )
-            }
-
-            composable(
-                route = Screen.ChatDetail.route,
-                arguments = listOf(navArgument("chatId") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val chatId = backStackEntry.arguments?.getString("chatId") ?: ""
-                val chatViewModel = remember { ChatViewModel(repository) }
-                ChatScreen(
-                    viewModel = chatViewModel,
-                    chatId = chatId,
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToProfile = { username ->
-                        navController.navigate(Screen.Profile.createRoute(username))
-                    }
-                )
-            }
-
-            composable(Screen.CreatePost.route) {
-                val createPostViewModel = remember { CreatePostViewModel(repository) }
-                CreatePostScreen(
-                    viewModel = createPostViewModel,
-                    onNavigateBack = { navController.popBackStack() },
-                    onPostCreated = {
-                        navController.navigate(Screen.Feed.route) {
-                            popUpTo(Screen.Feed.route) { inclusive = true }
-                        }
-                    }
-                )
-            }
-
-            composable(
-                route = Screen.PostDetail.route,
-                arguments = listOf(navArgument("postId") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val postId = backStackEntry.arguments?.getString("postId") ?: ""
-                val postDetailViewModel = remember(postId) {
-                    PostDetailViewModel(repository, postId)
-                }
-                PostDetailScreen(
-                    viewModel = postDetailViewModel,
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToProfile = { username ->
-                        navController.navigate(Screen.Profile.createRoute(username))
-                    }
-                )
-            }
-
-            composable(
-                route = Screen.Profile.route,
-                arguments = listOf(navArgument("username") { type = NavType.StringType })
-            ) { backStackEntry ->
-                val username = backStackEntry.arguments?.getString("username") ?: "profile_current"
-                val profileViewModel = remember(username) {
-                    ProfileViewModel(repository, username)
-                }
-                ProfileScreen(
-                    viewModel = profileViewModel,
-                    onNavigateBack = { navController.popBackStack() },
-                    onNavigateToPostDetail = { postId ->
-                        navController.navigate(Screen.PostDetail.createRoute(postId))
-                    }
-                )
-            }
-
-            composable(Screen.Admin.route) {
-                val adminViewModel = remember { AdminViewModel(repository) }
-                AdminScreen(viewModel = adminViewModel)
-            }
-
-            composable(Screen.Settings.route) {
-                val settingsViewModel = remember { SettingsViewModel(repository) }
-                SettingsScreen(
-                    viewModel = settingsViewModel,
-                    onLogoutSuccess = {
-                        navController.navigate(Screen.Auth.route) {
-                            popUpTo(0) { inclusive = true }
-                        }
-                    }
-                )
-            }
-        }
-
-        // Barra de navegación inferior flotante tipo pill
-        if (shouldShowNavBar) {
-            FloatingNavBar(
-                currentRoute = currentRoute,
-                isVisible = isNavBarVisible,
-                isAdmin = currentSession?.isAdmin == true,
-                onNavigate = { route ->
-                    if (route == "profile_current") {
-                        val currentUsername = currentSession?.username ?: ""
-                        navController.navigate(Screen.Profile.createRoute(currentUsername)) {
-                            launchSingleTop = true
-                        }
-                    } else if (route != currentRoute) {
-                        navController.navigate(route) {
-                            popUpTo(Screen.Feed.route) { saveState = true }
-                            launchSingleTop = true
-                            restoreState = true
-                        }
+    NavHost(
+        navController = navController,
+        startDestination = Screen.Splash.route,
+        modifier = Modifier.fillMaxSize()
+    ) {
+        composable(Screen.Splash.route) {
+            SplashScreen(
+                repository = repository,
+                sessionManager = repository.sessionManager,
+                onNavigateToFeed = {
+                    navController.navigate(Screen.Feed.route) {
+                        popUpTo(Screen.Splash.route) { inclusive = true }
                     }
                 },
-                modifier = Modifier.align(Alignment.BottomCenter)
+                onNavigateToAuth = {
+                    navController.navigate(Screen.Auth.route) {
+                        popUpTo(Screen.Splash.route) { inclusive = true }
+                    }
+                }
             )
+        }
+
+        composable(Screen.Auth.route) {
+            val authViewModel = remember { AuthViewModel(repository) }
+            AuthScreen(
+                viewModel = authViewModel,
+                onAuthSuccess = {
+                    navController.navigate(Screen.Feed.route) {
+                        popUpTo(Screen.Auth.route) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // Pantalla Principal integrada con ViewPager (Feed, Chats, Crear Post, Perfil, Ajustes)
+        composable(Screen.Feed.route) {
+            MainPagerScreen(
+                repository = repository,
+                onNavigateToChat = { chatId ->
+                    navController.navigate(Screen.ChatDetail.createRoute(chatId))
+                },
+                onNavigateToPostDetail = { postId ->
+                    navController.navigate(Screen.PostDetail.createRoute(postId))
+                },
+                onNavigateToProfile = { username ->
+                    navController.navigate(Screen.Profile.createRoute(username))
+                },
+                onLogoutSuccess = {
+                    navController.navigate(Screen.Auth.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
+        }
+
+        // Detalle de Chat individual o grupal
+        composable(
+            route = Screen.ChatDetail.route,
+            arguments = listOf(navArgument("chatId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val chatId = backStackEntry.arguments?.getString("chatId") ?: ""
+            val chatViewModel = remember(chatId) { ChatViewModel(repository) }
+            ChatScreen(
+                viewModel = chatViewModel,
+                chatId = chatId,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToProfile = { username ->
+                    navController.navigate(Screen.Profile.createRoute(username))
+                }
+            )
+        }
+
+        // Detalle de Publicación con comentarios y reproductor de video
+        composable(
+            route = Screen.PostDetail.route,
+            arguments = listOf(navArgument("postId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val postId = backStackEntry.arguments?.getString("postId") ?: ""
+            val postDetailViewModel = remember(postId) {
+                PostDetailViewModel(repository, postId)
+            }
+            PostDetailScreen(
+                viewModel = postDetailViewModel,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToProfile = { username ->
+                    navController.navigate(Screen.Profile.createRoute(username))
+                }
+            )
+        }
+
+        // Perfil de usuario específico
+        composable(
+            route = Screen.Profile.route,
+            arguments = listOf(navArgument("username") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val username = backStackEntry.arguments?.getString("username") ?: "profile_current"
+            val profileViewModel = remember(username) {
+                ProfileViewModel(repository, username)
+            }
+            ProfileScreen(
+                viewModel = profileViewModel,
+                onNavigateBack = { navController.popBackStack() },
+                onNavigateToPostDetail = { postId ->
+                    navController.navigate(Screen.PostDetail.createRoute(postId))
+                }
+            )
+        }
+
+        // Panel de Administración (Admin)
+        composable(Screen.Admin.route) {
+            val adminViewModel = remember { AdminViewModel(repository) }
+            AdminScreen(viewModel = adminViewModel)
         }
     }
 }

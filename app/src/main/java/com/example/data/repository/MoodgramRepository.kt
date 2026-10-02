@@ -38,6 +38,9 @@ class MoodgramRepository(
     private val chatsMutex = Mutex()
 
     private var lastHeartbeatSent: Long = 0L
+    private var lastUsersFileKey: String = ""
+    private var lastPostsFileKey: String = ""
+    private var lastChatsFileKey: String = ""
 
     /**
      * Construye la URL de reproducción/visualización autenticada para imágenes y videos.
@@ -116,6 +119,10 @@ class MoodgramRepository(
     }
 
     private suspend fun getUsersInternal(forceRemote: Boolean): UsersDatabase {
+        if (!forceRemote) {
+            localCache.getUsers()?.let { return it }
+        }
+
         try {
             var files = moodleApi.listEvidenceFiles()
             if (files.none { it.filename?.startsWith(AppConfig.USERS_FILE_PREFIX) == true }) {
@@ -128,6 +135,12 @@ class MoodgramRepository(
                 .thenByDescending { it.timemodified ?: 0L })
 
             val newestFile = userFiles.firstOrNull()
+            val fileKey = "${newestFile?.filename}_${newestFile?.timemodified}"
+
+            if (fileKey == lastUsersFileKey && localCache.getUsers() != null) {
+                return localCache.getUsers()!!
+            }
+
             val fileUrl = newestFile?.effectiveUrl
             if (fileUrl != null) {
                 val json = moodleApi.downloadText(fileUrl)
@@ -137,6 +150,7 @@ class MoodgramRepository(
                     null
                 }
                 if (db != null) {
+                    lastUsersFileKey = fileKey
                     localCache.saveUsers(db)
                     return db
                 }
@@ -177,6 +191,7 @@ class MoodgramRepository(
                 bytes = bytes,
                 evidenceTitle = "Moodgram Usuarios DB"
             )
+            lastUsersFileKey = "${filename}_${System.currentTimeMillis() / 1000}"
             Log.d(tag, "Base de datos de usuarios guardada con éxito ($filename)")
         } catch (e: Exception) {
             Log.e(tag, "Fallo al guardar usuarios en la nube", e)
@@ -193,6 +208,10 @@ class MoodgramRepository(
     }
 
     private suspend fun getPostsInternal(forceRemote: Boolean): PostsDatabase {
+        if (!forceRemote) {
+            localCache.getPosts()?.let { return it }
+        }
+
         try {
             var files = moodleApi.listEvidenceFiles()
             if (files.none { it.filename?.startsWith(AppConfig.POSTS_FILE_PREFIX) == true }) {
@@ -205,6 +224,12 @@ class MoodgramRepository(
                 .thenByDescending { it.timemodified ?: 0L })
 
             val newestFile = postFiles.firstOrNull()
+            val fileKey = "${newestFile?.filename}_${newestFile?.timemodified}"
+
+            if (fileKey == lastPostsFileKey && localCache.getPosts() != null) {
+                return localCache.getPosts()!!
+            }
+
             val fileUrl = newestFile?.effectiveUrl
             if (fileUrl != null) {
                 val json = moodleApi.downloadText(fileUrl)
@@ -225,6 +250,7 @@ class MoodgramRepository(
                         post.copy(mediaUrl = url)
                     }
                     val sanitizedDb = db.copy(posts = sanitizedPosts)
+                    lastPostsFileKey = fileKey
                     localCache.savePosts(sanitizedDb)
                     return sanitizedDb
                 }
@@ -254,6 +280,7 @@ class MoodgramRepository(
                 bytes = bytes,
                 evidenceTitle = "Moodgram Publicaciones DB"
             )
+            lastPostsFileKey = "${filename}_${System.currentTimeMillis() / 1000}"
             Log.d(tag, "Base de datos de publicaciones guardada ($filename)")
         } catch (e: Exception) {
             Log.e(tag, "Fallo al guardar publicaciones en la nube", e)
@@ -270,6 +297,10 @@ class MoodgramRepository(
     }
 
     private suspend fun getChatsInternal(forceRemote: Boolean): ChatsDatabase {
+        if (!forceRemote) {
+            localCache.getChats()?.let { return it }
+        }
+
         try {
             var files = moodleApi.listEvidenceFiles()
             if (files.none { it.filename?.startsWith(AppConfig.CHATS_FILE_PREFIX) == true }) {
@@ -282,6 +313,12 @@ class MoodgramRepository(
                 .thenByDescending { it.timemodified ?: 0L })
 
             val newestFile = chatFiles.firstOrNull()
+            val fileKey = "${newestFile?.filename}_${newestFile?.timemodified}"
+
+            if (fileKey == lastChatsFileKey && localCache.getChats() != null) {
+                return localCache.getChats()!!
+            }
+
             val fileUrl = newestFile?.effectiveUrl
             if (fileUrl != null) {
                 val json = moodleApi.downloadText(fileUrl)
@@ -291,6 +328,7 @@ class MoodgramRepository(
                     null
                 }
                 if (db != null) {
+                    lastChatsFileKey = fileKey
                     localCache.saveChats(db)
                     return db
                 }
