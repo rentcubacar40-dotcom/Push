@@ -79,8 +79,8 @@ class ChatViewModel(
 
     init {
         observeSession()
-        loadChats()
-        startRealtimePolling()
+        observeChatsFlow()
+        observeUsersFlow()
     }
 
     private fun observeSession() {
@@ -94,43 +94,11 @@ class ChatViewModel(
 
     private var currentChatIdToOpen: String? = null
 
-    private fun startRealtimePolling() {
+    private fun observeChatsFlow() {
         viewModelScope.launch {
-            while (isActive) {
-                delay(4500)
-                try {
-                    val session = _uiState.value.currentUser
-                    if (session != null) {
-                        repository.updateHeartbeat(session.username)
-                    }
-                    val chatsDb = repository.getChatsDatabase(forceRemote = false)
-                    val targetId = currentChatIdToOpen ?: _uiState.value.activeChat?.id
-
-                    val updatedActive = when (targetId) {
-                        null -> null
-                        AppConfig.OFFICIAL_GROUP_ID -> chatsDb.officialGroup
-                        else -> chatsDb.directChats.firstOrNull { it.id == targetId }
-                    }
-
-                    _uiState.update {
-                        it.copy(
-                            officialGroup = chatsDb.officialGroup,
-                            directChats = chatsDb.directChats,
-                            activeChat = updatedActive ?: it.activeChat
-                        )
-                    }
-                    resolveUsersAndAvatars()
-                } catch (_: Exception) {}
-            }
-        }
-    }
-
-    fun loadChats() {
-        viewModelScope.launch {
-            try {
-                val chatsDb = repository.getChatsDatabase(forceRemote = false)
+            repository.chatsFlow.collectLatest { chatsDb ->
                 val targetId = currentChatIdToOpen ?: _uiState.value.activeChat?.id
-                val active = when (targetId) {
+                val updatedActive = when (targetId) {
                     null -> null
                     AppConfig.OFFICIAL_GROUP_ID -> chatsDb.officialGroup
                     else -> chatsDb.directChats.firstOrNull { it.id == targetId }
@@ -140,15 +108,26 @@ class ChatViewModel(
                     it.copy(
                         officialGroup = chatsDb.officialGroup,
                         directChats = chatsDb.directChats,
-                        activeChat = active ?: it.activeChat,
+                        activeChat = updatedActive ?: it.activeChat,
                         isLoading = false
                     )
                 }
                 resolveUsersAndAvatars()
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isLoading = false, errorMessage = e.message) }
             }
         }
+    }
+
+    private fun observeUsersFlow() {
+        viewModelScope.launch {
+            repository.usersFlow.collectLatest { usersDb ->
+                _uiState.update { it.copy(allUsers = usersDb.users) }
+                resolveUsersAndAvatars()
+            }
+        }
+    }
+
+    fun loadChats() {
+        // Obtenido reactivamente a través de observeChatsFlow()
     }
 
     private suspend fun resolveUsersAndAvatars() {

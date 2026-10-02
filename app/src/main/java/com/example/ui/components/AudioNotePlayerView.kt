@@ -66,6 +66,7 @@ fun AudioNotePlayerView(
                 setOnCompletionListener {
                     isPlaying = false
                     currentPositionMs = 0
+                    try { seekTo(0) } catch (_: Exception) {}
                 }
                 prepareAsync()
             } catch (_: Exception) {
@@ -85,9 +86,10 @@ fun AudioNotePlayerView(
     LaunchedEffect(isPlaying) {
         while (isPlaying && mediaPlayer != null) {
             try {
-                currentPositionMs = mediaPlayer?.currentPosition ?: 0
+                val pos = mediaPlayer?.currentPosition ?: 0
+                currentPositionMs = pos
             } catch (_: Exception) {}
-            delay(200)
+            delay(100)
         }
     }
 
@@ -116,6 +118,10 @@ fun AudioNotePlayerView(
                         player.pause()
                         isPlaying = false
                     } else {
+                        if (currentPositionMs >= totalDurationMs - 300 || currentPositionMs == 0) {
+                            try { player.seekTo(0) } catch (_: Exception) {}
+                            currentPositionMs = 0
+                        }
                         player.start()
                         isPlaying = true
                     }

@@ -44,11 +44,35 @@ class ProfileViewModel(
     val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
 
     init {
-        loadProfile()
+        observeData()
+    }
+
+    private fun observeData() {
+        viewModelScope.launch {
+            repository.sessionManager.userSessionFlow.collectLatest { session ->
+                _uiState.update { it.copy(currentUser = session) }
+                refreshProfileData()
+            }
+        }
+
+        viewModelScope.launch {
+            repository.postsFlow.collectLatest {
+                refreshProfileData()
+            }
+        }
+
+        viewModelScope.launch {
+            repository.usersFlow.collectLatest {
+                refreshProfileData()
+            }
+        }
     }
 
     fun loadProfile() {
-        _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+        refreshProfileData()
+    }
+
+    private fun refreshProfileData() {
         viewModelScope.launch {
             try {
                 val session = repository.sessionManager.userSessionFlow.firstOrNull()
@@ -58,13 +82,13 @@ class ProfileViewModel(
                     targetUsername
                 }
 
-                val usersDb = repository.getUsersDatabase(forceRemote = false)
+                val usersDb = repository.usersFlow.value
                 val targetUser = usersDb.users.firstOrNull {
                     it.username.equals(effectiveUsername, ignoreCase = true) ||
                     it.username.removePrefix("@").equals(effectiveUsername.removePrefix("@"), ignoreCase = true)
                 }
 
-                val postsDb = repository.getPostsDatabase(forceRemote = false)
+                val postsDb = repository.postsFlow.value
                 val userPosts = postsDb.posts.filter {
                     it.authorUsername.equals(effectiveUsername, ignoreCase = true) ||
                     it.authorUsername.removePrefix("@").equals(effectiveUsername.removePrefix("@"), ignoreCase = true)
@@ -73,7 +97,7 @@ class ProfileViewModel(
                 val totalLikes = userPosts.sumOf { it.likes.size }
 
                 val avatarUrl = if (!targetUser?.avatarRef.isNullOrEmpty()) {
-                    repository.resolveMediaUrl(targetUser!!.avatarRef)
+                    repository.resolveMediaUrl(targetUser.avatarRef)
                 } else ""
 
                 val thumbs = mutableMapOf<String, String>()
@@ -95,7 +119,7 @@ class ProfileViewModel(
                         resolvedThumbnails = thumbs,
                         currentUser = session,
                         isCurrentUser = isCurrent,
-                        editDisplayName = targetUser?.displayName ?: "",
+                        editDisplayName = targetUser?.displayName ?: it.editDisplayName,
                         isLoading = false
                     )
                 }

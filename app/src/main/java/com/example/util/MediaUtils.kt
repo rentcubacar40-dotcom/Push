@@ -189,6 +189,63 @@ object MediaUtils {
     }
 
     /**
+     * Descarga un archivo directamente a la carpeta pública Downloads del dispositivo con notificación.
+     */
+    fun downloadFileToDownloads(context: Context, urlOrUri: String, filename: String) {
+        if (urlOrUri.isBlank()) return
+        val cleanName = if (filename.isNotBlank()) filename else "moodgram_${System.currentTimeMillis()}"
+        try {
+            if (urlOrUri.startsWith("http://") || urlOrUri.startsWith("https://")) {
+                val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                val request = android.app.DownloadManager.Request(Uri.parse(urlOrUri)).apply {
+                    setTitle(cleanName)
+                    setDescription("Guardado en carpeta Descargas")
+                    setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                    setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, cleanName)
+                    setAllowedOverMetered(true)
+                    setAllowedOverRoaming(true)
+                }
+                dm.enqueue(request)
+                android.widget.Toast.makeText(
+                    context,
+                    "Guardando en Descargas: $cleanName",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            } else {
+                openMediaExternally(context, urlOrUri)
+            }
+        } catch (e: Exception) {
+            android.widget.Toast.makeText(
+                context,
+                "No se pudo descargar automáticamente: abriendo...",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            openMediaExternally(context, urlOrUri)
+        }
+    }
+
+    /**
+     * Extrae un fotograma/miniatura de un video para mostrar en perfiles y listas.
+     */
+    fun getVideoThumbnail(videoUrl: String): Bitmap? {
+        if (videoUrl.isBlank()) return null
+        return try {
+            val retriever = android.media.MediaMetadataRetriever()
+            if (videoUrl.startsWith("http://") || videoUrl.startsWith("https://")) {
+                retriever.setDataSource(videoUrl, HashMap<String, String>())
+            } else {
+                retriever.setDataSource(videoUrl)
+            }
+            val frame = retriever.getFrameAtTime(1_000_000, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                ?: retriever.frameAtTime
+            retriever.release()
+            frame
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
      * Intenta abrir o descargar/ver externamente un archivo o enlace
      */
     fun openMediaExternally(context: Context, urlOrUri: String) {

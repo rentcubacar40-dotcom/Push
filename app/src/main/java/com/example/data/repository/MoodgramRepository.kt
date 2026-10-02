@@ -18,7 +18,15 @@ import com.example.data.model.UsersDatabase
 import com.example.data.moodle.MoodleApi
 import com.example.util.SecurityUtils
 import com.google.gson.Gson
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -37,10 +45,53 @@ class MoodgramRepository(
     private val postsMutex = Mutex()
     private val chatsMutex = Mutex()
 
+    private val repoScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    private val _usersFlow = MutableStateFlow(localCache.getUsersSync() ?: UsersDatabase())
+    val usersFlow: StateFlow<UsersDatabase> = _usersFlow.asStateFlow()
+
+    private val _postsFlow = MutableStateFlow(localCache.getPostsSync() ?: PostsDatabase())
+    val postsFlow: StateFlow<PostsDatabase> = _postsFlow.asStateFlow()
+
+    private val _chatsFlow = MutableStateFlow(localCache.getChatsSync() ?: ChatsDatabase())
+    val chatsFlow: StateFlow<ChatsDatabase> = _chatsFlow.asStateFlow()
+
     private var lastHeartbeatSent: Long = 0L
     private var lastUsersFileKey: String = ""
     private var lastPostsFileKey: String = ""
     private var lastChatsFileKey: String = ""
+
+    init {
+        startSyncWorker()
+    }
+
+    private fun startSyncWorker() {
+        repoScope.launch {
+            while (isActive) {
+                delay(2500)
+                try {
+                    val remoteChats = getChatsInternal(forceRemote = false)
+                    if (remoteChats.lastUpdated != _chatsFlow.value.lastUpdated || remoteChats != _chatsFlow.value) {
+                        _chatsFlow.value = remoteChats
+                    }
+                } catch (_: Exception) {}
+
+                try {
+                    val remotePosts = getPostsInternal(forceRemote = false)
+                    if (remotePosts.lastUpdated != _postsFlow.value.lastUpdated || remotePosts != _postsFlow.value) {
+                        _postsFlow.value = remotePosts
+                    }
+                } catch (_: Exception) {}
+
+                try {
+                    val remoteUsers = getUsersInternal(forceRemote = false)
+                    if (remoteUsers.lastUpdated != _usersFlow.value.lastUpdated || remoteUsers != _usersFlow.value) {
+                        _usersFlow.value = remoteUsers
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+    }
 
     /**
      * Construye la URL de reproducción/visualización autenticada para imágenes y videos.
@@ -180,6 +231,7 @@ class MoodgramRepository(
 
     private suspend fun saveUsersInternal(database: UsersDatabase) {
         localCache.saveUsers(database)
+        _usersFlow.value = database
         try {
             val json = gson.toJson(database)
             val bytes = json.toByteArray(Charsets.UTF_8)
@@ -269,6 +321,7 @@ class MoodgramRepository(
 
     private suspend fun savePostsInternal(database: PostsDatabase) {
         localCache.savePosts(database)
+        _postsFlow.value = database
         try {
             val json = gson.toJson(database)
             val bytes = json.toByteArray(Charsets.UTF_8)
@@ -371,6 +424,7 @@ class MoodgramRepository(
 
     private suspend fun saveChatsInternal(database: ChatsDatabase) {
         localCache.saveChats(database)
+        _chatsFlow.value = database
         try {
             val json = gson.toJson(database)
             val bytes = json.toByteArray(Charsets.UTF_8)
@@ -1228,12 +1282,44 @@ class MoodgramRepository(
         if (targetUsername.equals(AppConfig.ADMIN_USERNAME, ignoreCase = true)) {
             throw IOException("No se puede eliminar la cuenta principal de administrador.")
         }
+        val cleanTarget = targetUsername.trim()
+
+        // 1. Eliminar de Usuarios
         usersMutex.withLock {
             val usersDb = getUsersInternal(forceRemote = false)
-            val updatedUsers = usersDb.users.filterNot { it.username.equals(targetUsername, ignoreCase = true) }
+            val updatedUsers = usersDb.users.filterNot { it.username.equals(cleanTarget, ignoreCase = true) }
             val newDb = usersDb.copy(lastUpdated = System.currentTimeMillis(), users = updatedUsers)
             saveUsersInternal(newDb)
         }
+
+        // 2. Eliminar Publicaciones y Comentarios del usuario en cascada
+        try {
+            postsMutex.withLock {
+                val postsDb = getPostsInternal(forceRemote = false)
+                val updatedPosts = postsDb.posts
+                    .filterNot { it.authorUsername.equals(cleanTarget, ignoreCase = true) }
+                    .map { post ->
+                        val cleanedComments = post.comments.filterNot { it.authorUsername.equals(cleanTarget, ignoreCase = true) }
+                        post.copy(comments = cleanedComments)
+                    }
+                savePostsInternal(postsDb.copy(posts = updatedPosts, lastUpdated = System.currentTimeMillis()))
+            }
+        } catch (_: Exception) {}
+
+        // 3. Eliminar Chats Directos y Mensajes de Grupo del usuario en cascada
+        try {
+            chatsMutex.withLock {
+                val chatsDb = getChatsInternal(forceRemote = false)
+                val cleanedDirects = chatsDb.directChats.filterNot { direct ->
+                    direct.members.any { it.equals(cleanTarget, ignoreCase = true) }
+                }
+                val cleanedGroupMessages = chatsDb.officialGroup.messages.filterNot {
+                    it.senderUsername.equals(cleanTarget, ignoreCase = true)
+                }
+                val updatedGroup = chatsDb.officialGroup.copy(messages = cleanedGroupMessages)
+                saveChatsInternal(chatsDb.copy(officialGroup = updatedGroup, directChats = cleanedDirects, lastUpdated = System.currentTimeMillis()))
+            }
+        } catch (_: Exception) {}
     }
 
     /**

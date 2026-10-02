@@ -40,6 +40,19 @@ class LocalCache(private val context: Context) {
         }
     }
 
+    fun getUsersSync(): UsersDatabase? {
+        return try {
+            if (usersFile.exists()) {
+                val json = usersFile.readText(Charsets.UTF_8)
+                gson.fromJson(json, UsersDatabase::class.java)
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     suspend fun savePosts(database: PostsDatabase) = withContext(Dispatchers.IO) {
         try {
             val json = gson.toJson(database)
@@ -48,7 +61,11 @@ class LocalCache(private val context: Context) {
     }
 
     suspend fun getPosts(): PostsDatabase? = withContext(Dispatchers.IO) {
-        try {
+        getPostsSync()
+    }
+
+    fun getPostsSync(): PostsDatabase? {
+        return try {
             if (postsFile.exists()) {
                 val json = postsFile.readText(Charsets.UTF_8)
                 gson.fromJson(json, PostsDatabase::class.java)
@@ -68,7 +85,11 @@ class LocalCache(private val context: Context) {
     }
 
     suspend fun getChats(): com.example.data.model.ChatsDatabase? = withContext(Dispatchers.IO) {
-        try {
+        getChatsSync()
+    }
+
+    fun getChatsSync(): com.example.data.model.ChatsDatabase? {
+        return try {
             if (chatsFile.exists()) {
                 val json = chatsFile.readText(Charsets.UTF_8)
                 gson.fromJson(json, com.example.data.model.ChatsDatabase::class.java)
