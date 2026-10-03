@@ -53,9 +53,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // 1. Obtener el repositorio singleton administrado a nivel de Application
-        val app = application as MoodgramApplication
-        val repository = app.repository
+        // 1. Obtener el repositorio singleton seguro administrado por MoodgramRepository
+        val repository = MoodgramRepository.getInstance(applicationContext)
 
         // 2. Extraer destino de notificación si se abrió mediante un PendingIntent
         pendingChatId = intent.getStringExtra("extra_chat_id")

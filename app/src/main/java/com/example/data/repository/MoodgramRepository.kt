@@ -39,6 +39,20 @@ class MoodgramRepository(
     val sessionManager: SessionManager = SessionManager(context),
     val localCache: LocalCache = LocalCache(context)
 ) {
+    companion object {
+        @Volatile
+        private var instance: MoodgramRepository? = null
+
+        @Volatile
+        var currentActiveChatId: String? = null
+
+        fun getInstance(context: Context): MoodgramRepository {
+            return instance ?: synchronized(this) {
+                instance ?: MoodgramRepository(context.applicationContext).also { instance = it }
+            }
+        }
+    }
+
     private val tag = "MoodgramRepository"
     private val gson = Gson()
     private val usersMutex = Mutex()
@@ -88,7 +102,7 @@ class MoodgramRepository(
                         .filter { !it.senderUsername.equals(currentUserId, ignoreCase = true) }
 
                     val latestIncoming = allNewMessages.lastOrNull()
-                    if (latestIncoming != null && com.example.util.NotificationHelper.currentActiveChatId != latestIncoming.chatId) {
+                    if (latestIncoming != null && currentActiveChatId != latestIncoming.chatId) {
                         com.example.util.NotificationHelper.showChatNotification(
                             context = context,
                             senderDisplayName = latestIncoming.senderDisplayName,

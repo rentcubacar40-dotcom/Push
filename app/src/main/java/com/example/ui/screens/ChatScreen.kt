@@ -197,9 +197,9 @@ fun ChatScreen(
     }
 
     DisposableEffect(chatId) {
-        com.example.util.NotificationHelper.currentActiveChatId = chatId
+        com.example.data.repository.MoodgramRepository.currentActiveChatId = chatId
         onDispose {
-            com.example.util.NotificationHelper.currentActiveChatId = null
+            com.example.data.repository.MoodgramRepository.currentActiveChatId = null
         }
     }
 

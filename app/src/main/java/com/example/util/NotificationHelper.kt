@@ -15,9 +15,16 @@ import com.example.MainActivity
 import com.example.R
 
 object NotificationHelper {
-    private const val CHANNEL_ID = "moodgram_messages"
+    const val CHANNEL_ID = "moodgram_messages_v2"
     private const val CHANNEL_NAME = "Mensajes y Notificaciones"
-    private const val CHANNEL_DESC = "Notificaciones de nuevos mensajes y actividad en Moodgram"
+    private const val CHANNEL_DESC = "Notificaciones de nuevos mensajes, menciones y actividad en Moodgram"
+
+    /**
+     * ID del chat que el usuario tiene abierto actualmente en primer plano.
+     * Evita emitir sonido/notificación cuando el usuario ya está leyendo la conversación.
+     */
+    @Volatile
+    var currentActiveChatId: String? = null
 
     fun initNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -32,6 +39,17 @@ object NotificationHelper {
         }
     }
 
+    fun hasNotificationPermission(context: Context): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
     fun showChatNotification(
         context: Context,
         senderDisplayName: String,
@@ -39,14 +57,15 @@ object NotificationHelper {
         chatId: String,
         notificationId: Int = (chatId.hashCode() and 0x7FFFFFFF)
     ) {
+        // No notificar si el chat ya está en pantalla activa
+        if (currentActiveChatId == chatId || com.example.data.repository.MoodgramRepository.currentActiveChatId == chatId) {
+            return
+        }
+
         initNotificationChannel(context)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val hasPermission = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) == PackageManager.PERMISSION_GRANTED
-            if (!hasPermission) return
+        if (!hasNotificationPermission(context)) {
+            return
         }
 
         try {
@@ -71,6 +90,7 @@ object NotificationHelper {
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
+                .setGroup("moodgram_group_$chatId")
 
             with(NotificationManagerCompat.from(context)) {
                 notify(notificationId, builder.build())
