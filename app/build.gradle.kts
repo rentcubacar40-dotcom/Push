@@ -36,7 +36,12 @@ android {
       }
       storeFile = keystoreCandidate
       storePassword = System.getenv("STORE_PASSWORD") ?: "android"
-      keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
+      val aliasEnv = System.getenv("KEY_ALIAS")
+      keyAlias = when {
+        !aliasEnv.isNullOrEmpty() -> aliasEnv
+        keystoreCandidate.name.contains("debug") -> "androiddebugkey"
+        else -> "upload"
+      }
       keyPassword = System.getenv("KEY_PASSWORD") ?: "android"
     }
     create("debugConfig") {
