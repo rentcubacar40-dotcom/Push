@@ -52,6 +52,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -69,24 +70,65 @@ fun VideoPlayerView(
     initiallyMuted: Boolean = false
 ) {
     val context = LocalContext.current
+    var isActivated by remember(videoUrl) { mutableStateOf(autoPlay) }
     var isPlaying by remember { mutableStateOf(autoPlay) }
     var isMuted by remember { mutableStateOf(initiallyMuted) }
-    var isLoading by remember { mutableStateOf(true) }
+    var isLoading by remember { mutableStateOf(false) }
     var hasError by remember { mutableStateOf(false) }
     var showOverlayControls by remember { mutableStateOf(false) }
     var currentPositionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
     var progress by remember { mutableFloatStateOf(0f) }
 
-    val exoPlayer = remember(videoUrl) {
-        if (videoUrl.isBlank()) null
+    if (!isActivated) {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .then(if (aspectRatio > 0f) Modifier.aspectRatio(aspectRatio) else Modifier)
+                .clip(RoundedCornerShape(16.dp))
+                .background(
+                    brush = Brush.verticalGradient(
+                        listOf(Color(0xFF1E293B), Color(0xFF0F172A))
+                    )
+                )
+                .clickable {
+                    isActivated = true
+                    isPlaying = true
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = Color.Black.copy(alpha = 0.65f),
+                shadowElevation = 6.dp,
+                modifier = Modifier.size(60.dp)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Reproducir video",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    val exoPlayer = remember(videoUrl, isActivated) {
+        if (!isActivated || videoUrl.isBlank()) null
         else {
             try {
-                ExoPlayer.Builder(context).build().apply {
+                isLoading = true
+                val renderersFactory = DefaultRenderersFactory(context)
+                    .setEnableDecoderFallback(true)
+
+                ExoPlayer.Builder(context, renderersFactory).build().apply {
                     val mediaItem = MediaItem.fromUri(videoUrl)
                     setMediaItem(mediaItem)
                     repeatMode = Player.REPEAT_MODE_ALL
-                    playWhenReady = autoPlay
+                    playWhenReady = true
                     volume = if (isMuted) 0f else 1f
                     prepare()
                 }

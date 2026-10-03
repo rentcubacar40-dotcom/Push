@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.CircularProgressIndicator
@@ -28,7 +27,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,41 +43,29 @@ import kotlinx.coroutines.delay
 @Composable
 fun AudioNotePlayerView(
     audioUrl: String,
-    durationMs: Long,
-    isMe: Boolean,
+    durationMs: Long = 0L,
+    isMe: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var isPlaying by remember { mutableStateOf(false) }
-    var isPrepared by remember { mutableStateOf(false) }
+    var isPreparing by remember { mutableStateOf(false) }
     var currentPositionMs by remember { mutableIntStateOf(0) }
     var totalDurationMs by remember { mutableIntStateOf(durationMs.toInt()) }
     var mediaPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
 
-    DisposableEffect(audioUrl) {
-        val player = MediaPlayer().apply {
-            try {
-                setDataSource(audioUrl)
-                setOnPreparedListener {
-                    isPrepared = true
-                    totalDurationMs = duration.coerceAtLeast(durationMs.toInt())
-                }
-                setOnCompletionListener {
-                    isPlaying = false
-                    currentPositionMs = 0
-                    try { seekTo(0) } catch (_: Exception) {}
-                }
-                prepareAsync()
-            } catch (_: Exception) {
-                isPrepared = false
-            }
-        }
-        mediaPlayer = player
+    fun releasePlayer() {
+        try {
+            mediaPlayer?.stop()
+            mediaPlayer?.release()
+        } catch (_: Exception) {}
+        mediaPlayer = null
+        isPlaying = false
+        isPreparing = false
+    }
 
+    DisposableEffect(audioUrl) {
         onDispose {
-            try {
-                player.stop()
-                player.release()
-            } catch (_: Exception) {}
+            releasePlayer()
         }
     }
 
@@ -90,6 +76,55 @@ fun AudioNotePlayerView(
                 currentPositionMs = pos
             } catch (_: Exception) {}
             delay(100)
+        }
+    }
+
+    fun togglePlay() {
+        if (isPlaying) {
+            try {
+                mediaPlayer?.pause()
+            } catch (_: Exception) {}
+            isPlaying = false
+        } else {
+            val existing = mediaPlayer
+            if (existing != null) {
+                if (currentPositionMs >= totalDurationMs - 300 || currentPositionMs == 0) {
+                    try { existing.seekTo(0) } catch (_: Exception) {}
+                    currentPositionMs = 0
+                }
+                try {
+                    existing.start()
+                    isPlaying = true
+                } catch (_: Exception) {
+                    releasePlayer()
+                }
+            } else {
+                isPreparing = true
+                try {
+                    val player = MediaPlayer().apply {
+                        setDataSource(audioUrl)
+                        setOnPreparedListener {
+                            isPreparing = false
+                            totalDurationMs = duration.coerceAtLeast(durationMs.toInt())
+                            start()
+                            isPlaying = true
+                        }
+                        setOnCompletionListener {
+                            isPlaying = false
+                            currentPositionMs = 0
+                            try { seekTo(0) } catch (_: Exception) {}
+                        }
+                        setOnErrorListener { _, _, _ ->
+                            releasePlayer()
+                            true
+                        }
+                        prepareAsync()
+                    }
+                    mediaPlayer = player
+                } catch (_: Exception) {
+                    releasePlayer()
+                }
+            }
         }
     }
 
@@ -112,23 +147,12 @@ fun AudioNotePlayerView(
             color = if (isMe) Color.White.copy(alpha = 0.25f) else MaterialTheme.colorScheme.primaryContainer,
             modifier = Modifier
                 .size(40.dp)
-                .clickable(enabled = isPrepared) {
-                    val player = mediaPlayer ?: return@clickable
-                    if (isPlaying) {
-                        player.pause()
-                        isPlaying = false
-                    } else {
-                        if (currentPositionMs >= totalDurationMs - 300 || currentPositionMs == 0) {
-                            try { player.seekTo(0) } catch (_: Exception) {}
-                            currentPositionMs = 0
-                        }
-                        player.start()
-                        isPlaying = true
-                    }
+                .clickable {
+                    togglePlay()
                 }
         ) {
             Box(contentAlignment = Alignment.Center) {
-                if (!isPrepared) {
+                if (isPreparing) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(20.dp),
                         strokeWidth = 2.dp,
