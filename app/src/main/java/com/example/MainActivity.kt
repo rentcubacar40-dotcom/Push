@@ -115,20 +115,6 @@ fun MoodgramApp(
         }
     }
 
-    // 2. Si el usuario logueado es bloqueado o eliminado por el administrador, expulsar de inmediato
-    LaunchedEffect(currentSession?.username, usersDb.users) {
-        val session = currentSession ?: return@LaunchedEffect
-        if (usersDb.users.isNotEmpty()) {
-            val userInDb = usersDb.users.firstOrNull { it.username.equals(session.username, ignoreCase = true) }
-            if (userInDb == null || userInDb.isBanned) {
-                repository.logout()
-                navController.navigate(Screen.Auth.route) {
-                    popUpTo(0) { inclusive = true }
-                }
-            }
-        }
-    }
-
     // Manejo de Deep Link hacia un chat desde una notificación
     LaunchedEffect(pendingChatId) {
         pendingChatId?.let { chatId ->
@@ -196,7 +182,7 @@ fun MoodgramApp(
                 },
                 onLogoutSuccess = {
                     navController.navigate(Screen.Auth.route) {
-                        popUpTo(0) { inclusive = true }
+                        popUpTo(Screen.Feed.route) { inclusive = true }
                     }
                 }
             )
@@ -272,7 +258,7 @@ fun MoodgramApp(
                 viewModel = settingsViewModel,
                 onLogoutSuccess = {
                     navController.navigate(Screen.Auth.route) {
-                        popUpTo(0) { inclusive = true }
+                        popUpTo(Screen.Feed.route) { inclusive = true }
                     }
                 }
             )
