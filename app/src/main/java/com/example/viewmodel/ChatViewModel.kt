@@ -93,6 +93,29 @@ class ChatViewModel(
     }
 
     private var currentChatIdToOpen: String? = null
+    private var chatSyncJob: kotlinx.coroutines.Job? = null
+
+    fun startActiveChatSync(chatId: String, intervalSeconds: Long = 7L) {
+        chatSyncJob?.cancel()
+        chatSyncJob = viewModelScope.launch {
+            while (isActive) {
+                delay(intervalSeconds * 1000L)
+                try {
+                    val user = _uiState.value.currentUser
+                    repository.syncChats(
+                        forceRemote = true,
+                        notifyIfNewMessage = false,
+                        currentUserId = user?.username ?: ""
+                    )
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    fun stopActiveChatSync() {
+        chatSyncJob?.cancel()
+        chatSyncJob = null
+    }
 
     private fun observeChatsFlow() {
         viewModelScope.launch {
@@ -171,6 +194,7 @@ class ChatViewModel(
 
     fun openChat(chatId: String) {
         currentChatIdToOpen = chatId
+        startActiveChatSync(chatId)
         viewModelScope.launch {
             try {
                 // 1. Cargar base de datos local
@@ -702,6 +726,7 @@ class ChatViewModel(
     }
 
     fun closeActiveChat() {
+        stopActiveChatSync()
         currentChatIdToOpen = null
         _uiState.update {
             it.copy(
@@ -768,5 +793,10 @@ class ChatViewModel(
 
     fun clearError() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopActiveChatSync()
     }
 }

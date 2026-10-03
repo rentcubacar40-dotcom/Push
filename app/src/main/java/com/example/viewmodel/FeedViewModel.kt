@@ -38,8 +38,20 @@ class FeedViewModel(
 
     init {
         observeSession()
-        loadFeed(forceRemote = false)
-        startRealtimePolling()
+        observePostsFlow()
+        loadFeed(forceRemote = true)
+        startPeriodicSync()
+    }
+
+    private fun startPeriodicSync() {
+        viewModelScope.launch {
+            while (isActive) {
+                kotlinx.coroutines.delay(12000)
+                try {
+                    repository.syncPosts(forceRemote = true)
+                } catch (_: Exception) {}
+            }
+        }
     }
 
     private fun observeSession() {
@@ -51,22 +63,11 @@ class FeedViewModel(
         }
     }
 
-    private fun startRealtimePolling() {
+    private fun observePostsFlow() {
         viewModelScope.launch {
-            while (isActive) {
-                delay(4000)
-                try {
-                    val session = _uiState.value.currentUser
-                    if (session != null) {
-                        repository.updateHeartbeat(session.username)
-                    }
-                    val remoteDb = repository.getPostsDatabase(forceRemote = false)
-                    val currentCount = _uiState.value.posts.size
-                    if (remoteDb.posts.size != currentCount || remoteDb.posts != _uiState.value.posts) {
-                        _uiState.update { it.copy(posts = remoteDb.posts) }
-                        resolveUrlsForPosts(remoteDb.posts)
-                    }
-                } catch (_: Exception) {}
+            repository.postsFlow.collectLatest { postsDb ->
+                _uiState.update { it.copy(posts = postsDb.posts, isLoading = false) }
+                resolveUrlsForPosts(postsDb.posts)
             }
         }
     }

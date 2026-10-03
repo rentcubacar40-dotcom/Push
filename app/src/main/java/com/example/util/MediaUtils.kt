@@ -49,11 +49,31 @@ object MediaUtils {
     }
 
     /**
-     * Lee los bytes completos de un Uri.
+     * Lee los bytes de un Uri de forma segura verificando primero el tamaño
+     * para evitar OutOfMemoryError en archivos grandes.
      */
-    fun readBytes(context: Context, uri: Uri): ByteArray? {
+    fun readBytes(
+        context: Context,
+        uri: Uri,
+        maxAllowedBytes: Long = 15L * 1024 * 1024 // Límite estricto de 15 MB
+    ): ByteArray? {
+        val size = getFileSize(context, uri)
+        if (size > maxAllowedBytes) {
+            return null
+        }
         return try {
-            context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val buffer = ByteArrayOutputStream()
+                val chunk = ByteArray(8192)
+                var bytesRead: Int
+                var total = 0L
+                while (input.read(chunk).also { bytesRead = it } != -1) {
+                    total += bytesRead
+                    if (total > maxAllowedBytes) return null
+                    buffer.write(chunk, 0, bytesRead)
+                }
+                buffer.toByteArray()
+            }
         } catch (_: Exception) {
             null
         }

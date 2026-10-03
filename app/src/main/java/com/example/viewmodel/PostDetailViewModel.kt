@@ -44,6 +44,7 @@ class PostDetailViewModel(
 
     init {
         observeSession()
+        observePostsFlow()
         loadPost()
         startRealtimePolling()
     }
@@ -57,17 +58,24 @@ class PostDetailViewModel(
         }
     }
 
+    private fun observePostsFlow() {
+        viewModelScope.launch {
+            repository.postsFlow.collectLatest { db ->
+                val targetPost = db.posts.firstOrNull { it.id == postId }
+                if (targetPost != null && targetPost != _uiState.value.post) {
+                    _uiState.update { it.copy(post = targetPost, isLoading = false) }
+                    resolveAvatarsAndMedia(targetPost)
+                }
+            }
+        }
+    }
+
     private fun startRealtimePolling() {
         viewModelScope.launch {
             while (isActive) {
-                delay(4000)
+                delay(5000)
                 try {
-                    val db = repository.getPostsDatabase(forceRemote = false)
-                    val targetPost = db.posts.firstOrNull { it.id == postId }
-                    if (targetPost != null && targetPost != _uiState.value.post) {
-                        _uiState.update { it.copy(post = targetPost) }
-                        resolveAvatarsAndMedia(targetPost)
-                    }
+                    repository.syncPosts(forceRemote = true)
                 } catch (_: Exception) {}
             }
         }
@@ -76,12 +84,18 @@ class PostDetailViewModel(
     fun loadPost() {
         viewModelScope.launch {
             try {
-                val db = repository.getPostsDatabase(forceRemote = false)
-                val targetPost = db.posts.firstOrNull { it.id == postId }
+                val cachedPost = repository.postsFlow.value.posts.firstOrNull { it.id == postId }
+                if (cachedPost != null) {
+                    _uiState.update { it.copy(post = cachedPost, isLoading = false) }
+                    resolveAvatarsAndMedia(cachedPost)
+                }
+
+                repository.syncPosts(forceRemote = true)
+                val targetPost = repository.postsFlow.value.posts.firstOrNull { it.id == postId }
                 if (targetPost != null) {
                     _uiState.update { it.copy(post = targetPost, isLoading = false) }
                     resolveAvatarsAndMedia(targetPost)
-                } else {
+                } else if (cachedPost == null) {
                     _uiState.update { it.copy(isLoading = false, errorMessage = "Publicación no encontrada.") }
                 }
             } catch (e: Exception) {

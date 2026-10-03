@@ -12,6 +12,12 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -138,6 +144,7 @@ fun ChatScreen(
     val context = LocalContext.current
     val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
+    val coroutineScope = rememberCoroutineScope()
 
     var selectedMessageForOptions by remember { mutableStateOf<ChatMessage?>(null) }
     var selectedMessageForReadInfo by remember { mutableStateOf<ChatMessage?>(null) }
@@ -189,6 +196,13 @@ fun ChatScreen(
         viewModel.onGroupAvatarSelected(context, uri)
     }
 
+    DisposableEffect(chatId) {
+        com.example.util.NotificationHelper.currentActiveChatId = chatId
+        onDispose {
+            com.example.util.NotificationHelper.currentActiveChatId = null
+        }
+    }
+
     LaunchedEffect(chatId) {
         viewModel.openChat(chatId)
     }
@@ -196,12 +210,36 @@ fun ChatScreen(
     val activeChat = state.activeChat
     val messages = activeChat?.messages ?: emptyList()
 
-    // Auto scroll al último mensaje de forma segura
+    val isNearBottom by remember {
+        derivedStateOf {
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            lastVisibleIndex >= (messages.size - 2).coerceAtLeast(0)
+        }
+    }
+
+    var hasInitialScrolled by remember(chatId) { mutableStateOf(false) }
+    var newIncomingCount by remember { mutableStateOf(0) }
+
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) {
+        if (messages.isEmpty()) return@LaunchedEffect
+        if (!hasInitialScrolled) {
             try {
                 listState.scrollToItem(messages.size - 1)
             } catch (_: Exception) {}
+            hasInitialScrolled = true
+        } else if (isNearBottom) {
+            try {
+                listState.animateScrollToItem(messages.size - 1)
+            } catch (_: Exception) {}
+            newIncomingCount = 0
+        } else {
+            newIncomingCount++
+        }
+    }
+
+    LaunchedEffect(isNearBottom) {
+        if (isNearBottom) {
+            newIncomingCount = 0
         }
     }
 
@@ -368,54 +406,98 @@ fun ChatScreen(
                 }
             }
 
-            // Lista de Mensajes
-            LazyColumn(
-                state = listState,
+            // Contenedor de Lista de Mensajes con indicador flotante de mensajes nuevos
+            Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .fillMaxWidth()
             ) {
-                if (isOfficialGroup && messages.isEmpty()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (isOfficialGroup && messages.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = "¡Bienvenidos al Grupo Oficial de Moodgram!\nSé el primero en enviar un mensaje a la comunidad.",
-                                    fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(14.dp)
-                                )
+                                Surface(
+                                    shape = RoundedCornerShape(16.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                ) {
+                                    Text(
+                                        text = "¡Bienvenidos al Grupo Oficial de Moodgram!\nSé el primero en enviar un mensaje a la comunidad.",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(14.dp)
+                                    )
+                                }
                             }
                         }
                     }
+
+                    itemsIndexed(messages, key = { index, message -> if (message.id.isNotBlank()) "${message.id}_$index" else "msg_$index" }) { _, message ->
+                        val isMe = message.senderUsername.equals(state.currentUser?.username, ignoreCase = true)
+                        val senderAvatar = state.resolvedAvatarMap[message.senderUsername] ?: message.senderAvatarRef
+                        val senderIsOnline = state.userOnlineMap[message.senderUsername] == true
+
+                        SwipeableMessageBubble(
+                            message = message,
+                            isMe = isMe,
+                            senderAvatarUrl = senderAvatar,
+                            senderIsOnline = senderIsOnline,
+                            onMessageClick = { selectedMessageForOptions = message },
+                            onMessageLongClick = { selectedMessageForOptions = message },
+                            onAvatarClick = { onNavigateToProfile(message.senderUsername) },
+                            onImageClick = { previewImageFullscreen = message.mediaUrl },
+                            onSwipeToReply = { viewModel.setReplyingToMessage(message) }
+                        )
+                    }
                 }
 
-                itemsIndexed(messages, key = { index, message -> if (message.id.isNotBlank()) "${message.id}_$index" else "msg_$index" }) { _, message ->
-                    val isMe = message.senderUsername.equals(state.currentUser?.username, ignoreCase = true)
-                    val senderAvatar = state.resolvedAvatarMap[message.senderUsername] ?: message.senderAvatarRef
-                    val senderIsOnline = state.userOnlineMap[message.senderUsername] == true
-
-                    SwipeableMessageBubble(
-                        message = message,
-                        isMe = isMe,
-                        senderAvatarUrl = senderAvatar,
-                        senderIsOnline = senderIsOnline,
-                        onMessageClick = { selectedMessageForOptions = message },
-                        onMessageLongClick = { selectedMessageForOptions = message },
-                        onAvatarClick = { onNavigateToProfile(message.senderUsername) },
-                        onImageClick = { previewImageFullscreen = message.mediaUrl },
-                        onSwipeToReply = { viewModel.setReplyingToMessage(message) }
-                    )
+                // Indicador flotante "Nuevos mensajes" si el usuario está leyendo mensajes anteriores
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = !isNearBottom && newIncomingCount > 0,
+                    enter = fadeIn() + scaleIn(),
+                    exit = fadeOut() + scaleOut(),
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 12.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shadowElevation = 6.dp,
+                        modifier = Modifier.clickable {
+                            coroutineScope.launch {
+                                listState.animateScrollToItem(messages.size - 1)
+                                newIncomingCount = 0
+                            }
+                        }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowDownward,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (newIncomingCount == 1) "1 mensaje nuevo" else "$newIncomingCount mensajes nuevos",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
                 }
             }
 

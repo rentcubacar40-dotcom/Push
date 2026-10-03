@@ -1,14 +1,8 @@
 package com.example.ui.screens
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.MaterialTheme
@@ -21,7 +15,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.example.data.repository.MoodgramRepository
 import com.example.ui.components.FloatingNavBar
 import com.example.ui.navigation.Screen
@@ -29,29 +22,32 @@ import com.example.viewmodel.ChatViewModel
 import com.example.viewmodel.CreatePostViewModel
 import com.example.viewmodel.FeedViewModel
 import com.example.viewmodel.ProfileViewModel
-import com.example.viewmodel.SettingsViewModel
 import kotlinx.coroutines.launch
 
 /**
- * Pantalla principal que integra ViewPager (HorizontalPager) sincronizado con el FloatingNavBar.
- * Permite deslizar suavemente entre Feed, Chats, Crear Post, Perfil y Ajustes.
+ * Pantalla principal con NavigationBar M3 y Pager horizontal con 5 destinos:
+ * 0: Inicio (Feed)
+ * 1: Buscar (Search)
+ * 2: Publicar (Create Post)
+ * 3: Mensajes (Chat List)
+ * 4: Perfil (Profile) - desde el cual se accede a Ajustes y Admin
  */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MainPagerScreen(
     repository: MoodgramRepository,
     onNavigateToChat: (String) -> Unit,
     onNavigateToPostDetail: (String) -> Unit,
     onNavigateToProfile: (String) -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onNavigateToAdmin: () -> Unit,
     onLogoutSuccess: () -> Unit
 ) {
     val currentSession by repository.sessionManager.userSessionFlow.collectAsState(initial = null)
-    val isAdmin = currentSession?.isAdmin == true || 
+    val isAdmin = currentSession?.isAdmin == true ||
             currentSession?.username?.equals("@Eliel_21", ignoreCase = true) == true ||
             currentSession?.username?.equals("Eliel_21", ignoreCase = true) == true
 
-    val pageCount = if (isAdmin) 6 else 5
-    val pagerState = rememberPagerState(initialPage = 0, pageCount = { pageCount })
+    val pagerState = rememberPagerState(initialPage = 0, pageCount = { 5 })
     val coroutineScope = rememberCoroutineScope()
 
     var isNavBarVisible by remember { mutableStateOf(true) }
@@ -63,16 +59,13 @@ fun MainPagerScreen(
     val profileViewModel = remember(currentSession?.username) {
         ProfileViewModel(repository, currentSession?.username ?: "profile_current")
     }
-    val adminViewModel = remember { com.example.viewmodel.AdminViewModel(repository) }
-    val settingsViewModel = remember { SettingsViewModel(repository) }
 
     val currentRoute = when (pagerState.currentPage) {
         0 -> Screen.Feed.route
-        1 -> Screen.Chats.route
+        1 -> "search"
         2 -> Screen.CreatePost.route
-        3 -> "profile_current"
-        4 -> if (isAdmin) Screen.Admin.route else Screen.Settings.route
-        5 -> Screen.Settings.route
+        3 -> Screen.Chats.route
+        4 -> "profile_current"
         else -> Screen.Feed.route
     }
 
@@ -81,7 +74,6 @@ fun MainPagerScreen(
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // ViewPager horizontal sincronizado
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
@@ -97,7 +89,7 @@ fun MainPagerScreen(
                         onNavigateToPostDetail = onNavigateToPostDetail,
                         onNavigateToProfile = onNavigateToProfile,
                         onNavigateToChats = {
-                            coroutineScope.launch { pagerState.animateScrollToPage(1) }
+                            coroutineScope.launch { pagerState.animateScrollToPage(3) }
                         },
                         onScrollDirectionChanged = { isScrollingUp ->
                             isNavBarVisible = isScrollingUp
@@ -105,9 +97,10 @@ fun MainPagerScreen(
                     )
                 }
                 1 -> {
-                    ChatListScreen(
-                        viewModel = chatViewModel,
-                        onNavigateToChat = onNavigateToChat
+                    SearchScreen(
+                        repository = repository,
+                        onNavigateToProfile = onNavigateToProfile,
+                        onNavigateToPostDetail = onNavigateToPostDetail
                     )
                 }
                 2 -> {
@@ -122,35 +115,27 @@ fun MainPagerScreen(
                     )
                 }
                 3 -> {
+                    ChatListScreen(
+                        viewModel = chatViewModel,
+                        onNavigateToChat = onNavigateToChat
+                    )
+                }
+                4 -> {
                     ProfileScreen(
                         viewModel = profileViewModel,
                         onNavigateBack = {
                             coroutineScope.launch { pagerState.animateScrollToPage(0) }
                         },
                         onNavigateToPostDetail = onNavigateToPostDetail,
-                        onNavigateToChat = onNavigateToChat
-                    )
-                }
-                4 -> {
-                    if (isAdmin) {
-                        AdminScreen(viewModel = adminViewModel)
-                    } else {
-                        SettingsScreen(
-                            viewModel = settingsViewModel,
-                            onLogoutSuccess = onLogoutSuccess
-                        )
-                    }
-                }
-                5 -> {
-                    SettingsScreen(
-                        viewModel = settingsViewModel,
-                        onLogoutSuccess = onLogoutSuccess
+                        onNavigateToChat = onNavigateToChat,
+                        onNavigateToSettings = onNavigateToSettings,
+                        onNavigateToAdmin = onNavigateToAdmin
                     )
                 }
             }
         }
 
-        // Barra de Navegación Flotante Sincronizada con el ViewPager
+        // Barra de navegación Material 3 con etiquetas visibles
         FloatingNavBar(
             currentRoute = currentRoute,
             isVisible = isNavBarVisible,
@@ -158,11 +143,10 @@ fun MainPagerScreen(
             onNavigate = { route ->
                 val targetPage = when (route) {
                     Screen.Feed.route -> 0
-                    Screen.Chats.route -> 1
+                    "search" -> 1
                     Screen.CreatePost.route -> 2
-                    "profile_current", Screen.Profile.route -> 3
-                    Screen.Admin.route -> if (isAdmin) 4 else 0
-                    Screen.Settings.route -> if (isAdmin) 5 else 4
+                    Screen.Chats.route -> 3
+                    "profile_current", Screen.Profile.route -> 4
                     else -> 0
                 }
                 coroutineScope.launch {

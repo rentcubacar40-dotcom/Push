@@ -62,33 +62,79 @@ class MoodgramRepository(
     private var lastChatsFileKey: String = ""
 
     init {
-        startSyncWorker()
+        // Inicialización ligera sin bucles agresivos infinitos
     }
 
-    private fun startSyncWorker() {
-        repoScope.launch {
-            while (isActive) {
-                delay(2500)
-                try {
-                    val remoteChats = getChatsInternal(forceRemote = false)
-                    if (remoteChats.lastUpdated != _chatsFlow.value.lastUpdated || remoteChats != _chatsFlow.value) {
-                        _chatsFlow.value = remoteChats
-                    }
-                } catch (_: Exception) {}
+    /**
+     * Sincroniza la base de datos de chats comprobando primero metadatos ligeros
+     * para no descargar bytes innecesarios en la red Moodle.
+     */
+    suspend fun syncChats(
+        forceRemote: Boolean = true,
+        notifyIfNewMessage: Boolean = true,
+        currentUserId: String = ""
+    ): com.example.data.model.SyncResult = withContext(Dispatchers.IO) {
+        chatsMutex.withLock {
+            try {
+                val previousChats = _chatsFlow.value
+                val remoteDb = getChatsInternal(forceRemote)
 
-                try {
-                    val remotePosts = getPostsInternal(forceRemote = false)
-                    if (remotePosts.lastUpdated != _postsFlow.value.lastUpdated || remotePosts != _postsFlow.value) {
-                        _postsFlow.value = remotePosts
-                    }
-                } catch (_: Exception) {}
+                if (notifyIfNewMessage && remoteDb.lastUpdated != previousChats.lastUpdated) {
+                    val previousIds = previousChats.officialGroup.messages.map { it.id }.toSet() +
+                            previousChats.directChats.flatMap { it.messages }.map { it.id }.toSet()
 
-                try {
-                    val remoteUsers = getUsersInternal(forceRemote = false)
-                    if (remoteUsers.lastUpdated != _usersFlow.value.lastUpdated || remoteUsers != _usersFlow.value) {
-                        _usersFlow.value = remoteUsers
+                    val allNewMessages = (remoteDb.officialGroup.messages + remoteDb.directChats.flatMap { it.messages })
+                        .filter { it.id !in previousIds }
+                        .filter { !it.senderUsername.equals(currentUserId, ignoreCase = true) }
+
+                    val latestIncoming = allNewMessages.lastOrNull()
+                    if (latestIncoming != null && com.example.util.NotificationHelper.currentActiveChatId != latestIncoming.chatId) {
+                        com.example.util.NotificationHelper.showChatNotification(
+                            context = context,
+                            senderDisplayName = latestIncoming.senderDisplayName,
+                            messageText = latestIncoming.text.ifBlank { "Nuevo archivo adjunto" },
+                            chatId = latestIncoming.chatId
+                        )
                     }
-                } catch (_: Exception) {}
+                }
+
+                _chatsFlow.value = remoteDb
+                com.example.data.model.SyncResult.Synced
+            } catch (e: Exception) {
+                Log.w(tag, "Fallo al sincronizar chats desde Moodle", e)
+                com.example.data.model.SyncResult.Failed(e.message ?: "Error al sincronizar chats", e)
+            }
+        }
+    }
+
+    /**
+     * Sincroniza publicaciones desde Moodle usando comparación de metadatos/versiones.
+     */
+    suspend fun syncPosts(forceRemote: Boolean = true): com.example.data.model.SyncResult = withContext(Dispatchers.IO) {
+        postsMutex.withLock {
+            try {
+                val remoteDb = getPostsInternal(forceRemote)
+                _postsFlow.value = remoteDb
+                com.example.data.model.SyncResult.Synced
+            } catch (e: Exception) {
+                Log.w(tag, "Fallo al sincronizar publicaciones desde Moodle", e)
+                com.example.data.model.SyncResult.Failed(e.message ?: "Error al sincronizar publicaciones", e)
+            }
+        }
+    }
+
+    /**
+     * Sincroniza usuarios desde Moodle.
+     */
+    suspend fun syncUsers(forceRemote: Boolean = true): com.example.data.model.SyncResult = withContext(Dispatchers.IO) {
+        usersMutex.withLock {
+            try {
+                val remoteDb = getUsersInternal(forceRemote)
+                _usersFlow.value = remoteDb
+                com.example.data.model.SyncResult.Synced
+            } catch (e: Exception) {
+                Log.w(tag, "Fallo al sincronizar usuarios desde Moodle", e)
+                com.example.data.model.SyncResult.Failed(e.message ?: "Error al sincronizar usuarios", e)
             }
         }
     }
@@ -143,7 +189,7 @@ class MoodgramRepository(
      */
     suspend fun updateHeartbeat(username: String): Unit = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        if (now - lastHeartbeatSent < 25_000L) return@withContext // Throttle cada 25s
+        if (now - lastHeartbeatSent < 45_000L) return@withContext // Throttle cada 45s para economizar peticiones
         lastHeartbeatSent = now
 
         try {
@@ -155,7 +201,7 @@ class MoodgramRepository(
                     } else u
                 }
                 val newDb = db.copy(users = updated, lastUpdated = now)
-                localCache.saveUsers(newDb)
+                saveUsersInternal(newDb)
             }
         } catch (_: Exception) {}
     }
@@ -229,10 +275,10 @@ class MoodgramRepository(
         return initialDb
     }
 
-    private suspend fun saveUsersInternal(database: UsersDatabase) {
+    private suspend fun saveUsersInternal(database: UsersDatabase): com.example.data.model.SyncResult {
         localCache.saveUsers(database)
         _usersFlow.value = database
-        try {
+        return try {
             val json = gson.toJson(database)
             val bytes = json.toByteArray(Charsets.UTF_8)
             val filename = "${AppConfig.USERS_FILE_PREFIX}_${System.currentTimeMillis()}.json"
@@ -245,8 +291,10 @@ class MoodgramRepository(
             )
             lastUsersFileKey = "${filename}_${System.currentTimeMillis() / 1000}"
             Log.d(tag, "Base de datos de usuarios guardada con éxito ($filename)")
+            com.example.data.model.SyncResult.Synced
         } catch (e: Exception) {
             Log.e(tag, "Fallo al guardar usuarios en la nube", e)
+            com.example.data.model.SyncResult.Failed(e.message ?: "Error al guardar usuarios en el servidor", e)
         }
     }
 
@@ -319,10 +367,10 @@ class MoodgramRepository(
         return emptyDb
     }
 
-    private suspend fun savePostsInternal(database: PostsDatabase) {
+    private suspend fun savePostsInternal(database: PostsDatabase): com.example.data.model.SyncResult {
         localCache.savePosts(database)
         _postsFlow.value = database
-        try {
+        return try {
             val json = gson.toJson(database)
             val bytes = json.toByteArray(Charsets.UTF_8)
             val filename = "${AppConfig.POSTS_FILE_PREFIX}_${System.currentTimeMillis()}.json"
@@ -335,8 +383,10 @@ class MoodgramRepository(
             )
             lastPostsFileKey = "${filename}_${System.currentTimeMillis() / 1000}"
             Log.d(tag, "Base de datos de publicaciones guardada ($filename)")
+            com.example.data.model.SyncResult.Synced
         } catch (e: Exception) {
             Log.e(tag, "Fallo al guardar publicaciones en la nube", e)
+            com.example.data.model.SyncResult.Failed(e.message ?: "Error al guardar publicaciones en Moodle", e)
         }
     }
 
@@ -422,10 +472,10 @@ class MoodgramRepository(
         return initialDb
     }
 
-    private suspend fun saveChatsInternal(database: ChatsDatabase) {
+    private suspend fun saveChatsInternal(database: ChatsDatabase): com.example.data.model.SyncResult {
         localCache.saveChats(database)
         _chatsFlow.value = database
-        try {
+        return try {
             val json = gson.toJson(database)
             val bytes = json.toByteArray(Charsets.UTF_8)
             val filename = "${AppConfig.CHATS_FILE_PREFIX}_${System.currentTimeMillis()}.json"
@@ -436,9 +486,12 @@ class MoodgramRepository(
                 bytes = bytes,
                 evidenceTitle = "Moodgram Chats DB"
             )
+            lastChatsFileKey = "${filename}_${System.currentTimeMillis() / 1000}"
             Log.d(tag, "Base de datos de chats guardada con éxito ($filename)")
+            com.example.data.model.SyncResult.Synced
         } catch (e: Exception) {
             Log.e(tag, "Fallo al guardar chats en la nube", e)
+            com.example.data.model.SyncResult.Failed(e.message ?: "Error al guardar chats en Moodle", e)
         }
     }
 
@@ -489,6 +542,10 @@ class MoodgramRepository(
         val updatedUser = user.copy(lastActive = System.currentTimeMillis())
         sessionManager.saveSession(updatedUser)
         return@withContext updatedUser
+    }
+
+    suspend fun logout() {
+        sessionManager.clearSession()
     }
 
     /**
@@ -633,14 +690,17 @@ class MoodgramRepository(
         )
 
         postsMutex.withLock {
-            val postsDb = getPostsInternal(forceRemote = false)
-            val updatedPosts = listOf(newPost) + postsDb.posts
+            val postsDb = getPostsInternal(forceRemote = true)
+            val updatedPosts = listOf(newPost) + postsDb.posts.filterNot { it.id == newPost.id }
             val newDb = postsDb.copy(
                 version = postsDb.version + 1,
                 lastUpdated = System.currentTimeMillis(),
                 posts = updatedPosts
             )
-            savePostsInternal(newDb)
+            val syncResult = savePostsInternal(newDb)
+            if (syncResult is com.example.data.model.SyncResult.Failed) {
+                throw IOException(syncResult.message, syncResult.cause)
+            }
         }
 
         return@withContext newPost
@@ -651,7 +711,7 @@ class MoodgramRepository(
      */
     suspend fun setPostReaction(postId: String, username: String, emoji: String): Unit = withContext(Dispatchers.IO) {
         postsMutex.withLock {
-            val postsDb = getPostsInternal(forceRemote = false)
+            val postsDb = getPostsInternal(forceRemote = true)
             val updatedPosts = postsDb.posts.map { post ->
                 if (post.id == postId) {
                     val currentReaction = post.reactions[username]
@@ -668,7 +728,10 @@ class MoodgramRepository(
                 }
             }
             val newDb = postsDb.copy(lastUpdated = System.currentTimeMillis(), posts = updatedPosts)
-            savePostsInternal(newDb)
+            val res = savePostsInternal(newDb)
+            if (res is com.example.data.model.SyncResult.Failed) {
+                throw IOException(res.message, res.cause)
+            }
         }
     }
 
@@ -677,7 +740,7 @@ class MoodgramRepository(
      */
     suspend fun toggleLike(postId: String, username: String): Boolean = withContext(Dispatchers.IO) {
         postsMutex.withLock {
-            val postsDb = getPostsInternal(forceRemote = false)
+            val postsDb = getPostsInternal(forceRemote = true)
             var likedNow = false
             val updatedPosts = postsDb.posts.map { post ->
                 if (post.id == postId) {
@@ -697,7 +760,10 @@ class MoodgramRepository(
                 }
             }
             val newDb = postsDb.copy(lastUpdated = System.currentTimeMillis(), posts = updatedPosts)
-            savePostsInternal(newDb)
+            val res = savePostsInternal(newDb)
+            if (res is com.example.data.model.SyncResult.Failed) {
+                throw IOException(res.message, res.cause)
+            }
             return@withLock likedNow
         }
     }
@@ -728,7 +794,7 @@ class MoodgramRepository(
         )
 
         postsMutex.withLock {
-            val postsDb = getPostsInternal(forceRemote = false)
+            val postsDb = getPostsInternal(forceRemote = true)
             val updatedPosts = postsDb.posts.map { post ->
                 if (post.id == postId) {
                     post.copy(comments = post.comments + newComment)
@@ -737,7 +803,10 @@ class MoodgramRepository(
                 }
             }
             val newDb = postsDb.copy(lastUpdated = System.currentTimeMillis(), posts = updatedPosts)
-            savePostsInternal(newDb)
+            val res = savePostsInternal(newDb)
+            if (res is com.example.data.model.SyncResult.Failed) {
+                throw IOException(res.message, res.cause)
+            }
         }
 
         return@withContext newComment
@@ -757,7 +826,7 @@ class MoodgramRepository(
         if (newText.isBlank()) throw IOException("El comentario no puede estar vacío.")
 
         postsMutex.withLock {
-            val postsDb = getPostsInternal(forceRemote = false)
+            val postsDb = getPostsInternal(forceRemote = true)
             val updatedPosts = postsDb.posts.map { post ->
                 if (post.id == postId) {
                     val updatedComments = post.comments.map { comment ->
@@ -776,7 +845,10 @@ class MoodgramRepository(
                 }
             }
             val newDb = postsDb.copy(lastUpdated = System.currentTimeMillis(), posts = updatedPosts)
-            savePostsInternal(newDb)
+            val res = savePostsInternal(newDb)
+            if (res is com.example.data.model.SyncResult.Failed) {
+                throw IOException(res.message, res.cause)
+            }
         }
     }
 
@@ -785,7 +857,7 @@ class MoodgramRepository(
      */
     suspend fun deletePost(postId: String, requestingUsername: String, isAdmin: Boolean) = withContext(Dispatchers.IO) {
         postsMutex.withLock {
-            val postsDb = getPostsInternal(forceRemote = false)
+            val postsDb = getPostsInternal(forceRemote = true)
             val post = postsDb.posts.firstOrNull { it.id == postId } ?: return@withLock
             if (!isAdmin && !post.authorUsername.equals(requestingUsername, ignoreCase = true)) {
                 throw IOException("No tienes permisos para eliminar esta publicación.")
@@ -793,7 +865,10 @@ class MoodgramRepository(
 
             val updatedPosts = postsDb.posts.filterNot { it.id == postId }
             val newDb = postsDb.copy(lastUpdated = System.currentTimeMillis(), posts = updatedPosts)
-            savePostsInternal(newDb)
+            val res = savePostsInternal(newDb)
+            if (res is com.example.data.model.SyncResult.Failed) {
+                throw IOException(res.message, res.cause)
+            }
         }
     }
 
@@ -807,7 +882,7 @@ class MoodgramRepository(
         isAdmin: Boolean
     ) = withContext(Dispatchers.IO) {
         postsMutex.withLock {
-            val postsDb = getPostsInternal(forceRemote = false)
+            val postsDb = getPostsInternal(forceRemote = true)
             val updatedPosts = postsDb.posts.map { post ->
                 if (post.id == postId) {
                     val filteredComments = post.comments.filterNot { comment ->
@@ -825,7 +900,10 @@ class MoodgramRepository(
                 }
             }
             val newDb = postsDb.copy(lastUpdated = System.currentTimeMillis(), posts = updatedPosts)
-            savePostsInternal(newDb)
+            val res = savePostsInternal(newDb)
+            if (res is com.example.data.model.SyncResult.Failed) {
+                throw IOException(res.message, res.cause)
+            }
         }
     }
 
@@ -904,7 +982,7 @@ class MoodgramRepository(
         )
 
         chatsMutex.withLock {
-            val db = getChatsInternal(forceRemote = false)
+            val db = getChatsInternal(forceRemote = true)
             val summaryText = when {
                 mediaUrl.isNotEmpty() && text.isBlank() -> {
                     when (actualMediaType) {
@@ -920,7 +998,7 @@ class MoodgramRepository(
             val newDb = if (chatId == AppConfig.OFFICIAL_GROUP_ID) {
                 val group = db.officialGroup
                 val updatedGroup = group.copy(
-                    messages = group.messages + message,
+                    messages = group.messages.filterNot { it.id == message.id } + message,
                     lastMessage = summaryText,
                     lastMessageSender = sender.displayName,
                     lastMessageTime = message.createdAt
@@ -930,7 +1008,7 @@ class MoodgramRepository(
                 val updatedDirects = db.directChats.map { direct ->
                     if (direct.id == chatId) {
                         direct.copy(
-                            messages = direct.messages + message,
+                            messages = direct.messages.filterNot { it.id == message.id } + message,
                             lastMessage = summaryText,
                             lastMessageSender = sender.displayName,
                             lastMessageTime = message.createdAt
@@ -939,7 +1017,10 @@ class MoodgramRepository(
                 }
                 db.copy(directChats = updatedDirects, lastUpdated = System.currentTimeMillis())
             }
-            saveChatsInternal(newDb)
+            val syncResult = saveChatsInternal(newDb)
+            if (syncResult is com.example.data.model.SyncResult.Failed) {
+                throw IOException(syncResult.message, syncResult.cause)
+            }
         }
 
         return@withContext message
